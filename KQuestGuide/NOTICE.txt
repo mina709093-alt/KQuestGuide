@@ -1,0 +1,14 @@
+KQuestGuide - 한글 퀘스트 길잡이
+
+이 애드온의 퀘스트/NPC/오브젝트 데이터(Data.lua)와 지역 지도 번호표(Map.lua)는
+Questie / QuestieDB 프로젝트의 WoW: Forever 데이터에서 변환해 만들었습니다.
+  https://github.com/Questie/Questie
+  https://github.com/Questie/QuestieDB
+한글 이름은 두 프로젝트의 koKR 현지화 데이터에서 가져왔습니다.
+
+Questie 팀은 저장소를 포크하거나 코드를 복사하는 것을 GPLv3 조건으로 허용한다고
+LICENSE.md 에 밝히고 있습니다 (모든 기여자의 동의를 약속하진 못한다는 단서가 붙어 있습니다).
+그래서 이 애드온도 GPLv3 조건(LICENSE-GPL3.md)으로 배포합니다: 소스를 그대로 공개해야 하고,
+이 NOTICE 를 지우지 마세요. Questie 이름과 로고는 쓰지 않았습니다.
+
+글꼴: 마루부리(MaruBuri) Regular/Bold TTF — 네이버(Naver) 배포. 오픈 폰트 라이선스(SIL OFL 1.1)로 알려져 있으며, 재배포 조건은 배포처(hangeul.naver.com)에서 확인하세요.
