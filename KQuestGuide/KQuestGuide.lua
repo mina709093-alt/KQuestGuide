@@ -645,12 +645,16 @@ BuildPlan = function(level, m)
     if chain then
       for i = 1, #chain - 1 do
         local g = SeqStep(chain[i])
-        if g then seq[#seq + 1] = g end
+        if g then
+          g.chain = { target = t.qid, map = t.map, idx = i, total = #chain - 1 }
+          seq[#seq + 1] = g
+        end
       end
     end
     local first = seq[1]
     if first and first.map and first.map ~= m then
       local tr = MkStep("travel", "TRAVELING_TO_PREREQUISITE_REGION", "ptravel" .. t.qid, { chain[1] }, first.loc)
+      tr.chain = { target = t.qid, map = t.map, idx = 0, total = #chain - 1 }
       tr.title = "|cffe0701f[이동]|r " .. MapName(first.map) .. "(으)로 이동 (선행 퀘스트: " .. QName(t.qid) .. ")"
       tr.where = "교통수단 정보가 없어 직접 이동하세요. 비행경로/배를 추천하지 않습니다."
       Add(tr)
@@ -660,6 +664,7 @@ BuildPlan = function(level, m)
       local tl = Q[t.qid][F_START]
       if tl and tl[3] then
         local rt = MkStep("travel", "RETURNING_TO_TARGET_REGION", "pret" .. t.qid, { t.qid }, tl)
+        rt.chain = { target = t.qid, map = t.map, idx = -1, total = chain and (#chain - 1) or 0 }
         rt.title = "|cffe0701f[복귀]|r " .. MapName(t.map) .. "(으)로 돌아가 " .. QName(t.qid) .. " 수락"
         rt.where = "교통수단 정보가 없어 직접 이동하세요."
         Add(rt)
@@ -1247,6 +1252,7 @@ local function StepTitle(g)
   if g.kind == "turnin" then tag = "|cff2fa26a[제출]|r "
   elseif g.kind == "doing" then tag = "|cff2f86c8[수행]|r "
   else tag = "|cffd18a00[수락]|r " end
+  if g.chain then tag = tag .. "|cff4a9fc7[연계]|r " end
   local t = tag .. first[F_NAME]
   if more > 0 then t = t .. " 외 " .. more .. "개" end
   for _, id in ipairs(g.quests) do
@@ -1312,6 +1318,7 @@ end
 -- 화살표 --------------------------------------------------------------------------
 
 local lastWpKey
+local arrivedKey
 local zoneChangeAt = 0   -- 지역 이동(로딩) 직후 안내가 끊기지 않게 다시 거는 시간 창
 local function SetWaypoint(g)
   if not (db.waypoint ~= false and g and C_Map and C_Map.SetUserWaypoint and UiMapPoint) then return end
@@ -1443,6 +1450,23 @@ local function UpdateArrow()
     SPFCancel()
     spfKey, spfOwned = nil, false
   end
+  -- 수락 지점에 도착하면 무엇을 해야 하는지 화면 중앙에 한 번 알려 준다
+  if g and g.kind == "accept" and g.map and g.loc and db.arriveNotice ~= false then
+    local dd = Measure(g.map, g.loc[4], g.loc[5])
+    local ak = tostring(g.key) .. ":" .. tostring(g.quests and g.quests[1])
+    if dd and dd <= 40 and ak ~= arrivedKey then
+      arrivedKey = ak
+      local npc = g.loc[6]
+      local l1 = "도착!  " .. ((npc and npc ~= "") and (npc .. "에게 말을 걸어 퀘스트를 수락하세요") or "퀘스트를 수락하세요")
+      local l2 = "「" .. QName(g.quests[1]) .. "」"
+      local c = g.chain
+      if c and c.idx and c.idx > 0 then
+        l2 = l2 .. "   ◆ 연계 퀘스트 " .. c.idx .. "/" .. c.total .. " (" .. MapName(c.map) .. "의 「" .. QName(c.target) .. "」를 열기 위해)"
+      end
+      if KQG.Banner then pcall(KQG.Banner, l1, l2, 6)
+      elseif UIErrorsFrame and UIErrorsFrame.AddMessage then UIErrorsFrame:AddMessage(l1 .. " " .. l2, 1, 0.82, 0.2, 1, 5) end
+    end
+  end
   if not g or not g.map then
     arrow:Hide()
     return
@@ -1474,6 +1498,32 @@ local LROWS = 4
 local lrows = {}
 local LayoutFrame
 local rows = {}
+
+-- 지금 무엇을 하러 가는 중인지 한 문장으로
+local function ActionText(g)
+  if not g or g.kind == "travel" or not g.quests or not g.quests[1] then return nil end
+  local npc = g.loc and g.loc[6]
+  local more = #g.quests - 1
+  local qs = "|cffffffff「" .. QName(g.quests[1]) .. "」" .. (more > 0 and (" 외 " .. more .. "개") or "") .. "|r"
+  local to = (npc and npc ~= "") and ("|cffffd100" .. npc .. "|r에게 ") or ""
+  if g.kind == "accept" then return to .. qs .. " 퀘스트를 수락하러 가는 중" end
+  if g.kind == "turnin" then return to .. qs .. " 퀘스트를 제출하러 가는 중" end
+  return qs .. " 퀘스트를 수행하러 가는 중"
+end
+
+-- 이 단계가 다른 퀘스트를 열기 위한 연계 퀘스트일 때의 설명
+local function ChainBadge(g)
+  local c = g and g.chain
+  if not c then return nil end
+  local target = "|cffffffff「" .. QName(c.target) .. "」|r"
+  local zone = MapName(c.map)
+  if c.idx and c.idx > 0 then
+    return "|cff4a9fc7◆ 연계 퀘스트|r  " .. zone .. "의 " .. target .. "를 열기 위해 먼저 해야 합니다 (" .. c.total .. "개 중 " .. c.idx .. "번째)"
+  elseif c.idx == 0 then
+    return "|cff4a9fc7◆ 연계 퀘스트|r  " .. zone .. "의 " .. target .. "를 열려면 다른 지역의 선행 퀘스트를 먼저 해야 합니다"
+  end
+  return "|cff4a9fc7◆ 연계 퀘스트 완료|r  " .. zone .. "로 돌아가 " .. target .. "를 수락합니다"
+end
 
 local function ChainText(g)
   -- 이 단계의 첫 퀘스트가 몇 단계 체인의 일부인지
@@ -1523,6 +1573,14 @@ local function Refresh()
   if g then
     frame.cur1:SetText(StepTitle(g))
     frame.cur2:SetText(StepWhere(g))
+    do
+      local at = (not g.who) and ActionText(g) or nil
+      local cb = ChainBadge(g)
+      local txt = ""
+      if at then txt = at end
+      if cb then txt = (txt ~= "" and (txt .. "\n") or "") .. cb end
+      frame.curA:SetText(txt)
+    end
     local lines = {}
     local brief = {}
     local stt = StateOf(g)
@@ -1583,14 +1641,17 @@ local function Refresh()
   else
     frame.icon:Hide()
     if #progress > 0 then
+      frame.curA:SetText("")
       frame.cur1:SetText("진행 중인 퀘스트를 하세요")
       frame.cur2:SetText("목표를 달성하면 제출 단계가 나옵니다")
       frame.cur3:SetText("")
     elseif #suggestions > 0 then
+      frame.curA:SetText("")
       frame.cur1:SetText("이 지역에서 할 퀘스트가 없습니다")
       frame.cur2:SetText("레벨에 맞는 다른 지역을 추천합니다")
       frame.cur3:SetText("")
     else
+      frame.curA:SetText("")
       frame.cur1:SetText("할 수 있는 퀘스트가 없습니다")
       frame.cur2:SetText("레벨/지역을 확인하세요")
       frame.cur3:SetText("")
@@ -1918,9 +1979,22 @@ LayoutFrame = function()
   f.cur1:ClearAllPoints()
   f.cur1:SetPoint("TOPLEFT", f, "TOPLEFT", PADX + 28, y)
   local h = TextH(f.cur1) + 3 + TextH(f.cur2)
+  local cA = f.curA:GetText()
+  local above = f.cur2
+  if cA and cA ~= "" then
+    f.curA:Show()
+    f.curA:ClearAllPoints()
+    f.curA:SetPoint("TOPLEFT", f.cur2, "BOTTOMLEFT", 0, -6)
+    h = h + 6 + TextH(f.curA)
+    above = f.curA
+  else
+    f.curA:Hide()
+  end
   local c3 = f.cur3:GetText()
   if c3 and c3 ~= "" then
     f.cur3:Show()
+    f.cur3:ClearAllPoints()
+    f.cur3:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -5)
     h = h + 5 + TextH(f.cur3)
   else
     f.cur3:Hide()
@@ -2291,6 +2365,10 @@ local function BuildFrame()
   f.cur2:SetPoint("TOPLEFT", f.cur1, "BOTTOMLEFT", 0, -3)
   f.cur2:SetWidth(CW - 28)
   f.cur2:SetJustifyH("LEFT")
+  f.curA = Dark(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 13, true)
+  f.curA:SetPoint("TOPLEFT", f.cur2, "BOTTOMLEFT", 0, -6)
+  f.curA:SetWidth(CW - 28)
+  f.curA:SetJustifyH("LEFT")
   f.cur3 = Dark(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
   f.cur3:SetPoint("TOPLEFT", f.cur2, "BOTTOMLEFT", 0, -5)
   f.cur3:SetWidth(CW - 28)
@@ -2651,6 +2729,8 @@ KQG.GetForced = function() return forced end
 KQG.Compute = function() dirty = true Compute() end
 KQG.Steps = function() return steps end
 KQG.StepsRaw = function() return steps end
+KQG.ActionText = ActionText
+KQG.ChainBadge = ChainBadge
 KQG.SetAnchor = function(map)
   if map then anchorMap = map end
   db.planTarget = nil
@@ -2750,8 +2830,13 @@ SlashCmdList["KQG"] = function(msg)
     Print("건너뛴 퀘스트를 모두 되돌렸습니다.")
   elseif msg == "report" then
     ShowReport()
+  elseif msg == "arrive" then
+    db.arriveNotice = (db.arriveNotice == false)
+    Print("수락 지점 도착 안내 " .. (db.arriveNotice == false and "꺼짐" or "켜짐"))
   elseif string.sub(msg, 1, 4) == "item" then
     if KQG.ItemCommand then KQG.ItemCommand(string.sub(msg, 6)) end
+  elseif string.sub(msg, 1, 3) == "npc" then
+    if KQG.NpcCommand then KQG.NpcCommand(string.sub(msg, 5)) end
   elseif msg == "party" then
     if KQG.PartyCommand then KQG.PartyCommand() end
   elseif msg == "debug" then

@@ -126,7 +126,8 @@ local function MyStatus()
     ver = g and g("KQuestGuide", "Version") or "?"
   end)
   local d = KQG.DB()
-  return { ver = ver, level = UnitLevel("player") or 0, map = map or 0, log = LogCount(), zdone = done, ztotal = total, t = GetTime(), pm = d.partyMode and true or false, pq = d.partyQuest and true or false }
+  return { ver = ver, level = UnitLevel("player") or 0, map = map or 0, log = LogCount(), zdone = done, ztotal = total, t = GetTime(), pm = d.partyMode and true or false, pq = d.partyQuest and true or false,
+    syncing = (d.partyMode and not shareLocked and syncState ~= "ready") and true or false }
 end
 
 local function MyIds()
@@ -138,7 +139,7 @@ local function MyIds()
 end
 
 local function Encode(st)
-  return table.concat({ "S", st.ver, st.level, st.map, st.log, st.zdone, st.ztotal, MyIds(), st.pm and 1 or 0, st.pq and 1 or 0 }, "|")
+  return table.concat({ "S", st.ver, st.level, st.map, st.log, st.zdone, st.ztotal, MyIds(), (st.pm and (st.syncing and 2 or 1) or 0), st.pq and 1 or 0 }, "|")
 end
 
 local function Broadcast(force)
@@ -454,6 +455,22 @@ local function AllPM()
   return true
 end
 
+-- 모두 파티 모드를 켜고, 퀘스트 공유까지 끝났는지
+local function AllReady()
+  if not AllPM() then return false end
+  local me = MyStatus()
+  if me.syncing then return false end
+  for _, m in ipairs(Members()) do
+    if not m.me then
+      local st = roster[Short(m.name)]
+      if st and st.syncing then return false end
+    end
+  end
+  return true
+end
+
+KQG.PartyDebugState = function() return syncState, shareLocked, AllReady() end
+
 local function Refresh()
   if not frame or not frame:IsShown() then return end
   local inParty, have, need, ms = Conditions()
@@ -466,7 +483,7 @@ local function Refresh()
     on = false
   end
   if not on then KQG.DB().partyQuest = false end
-  local allPm = AllPM()
+  local allPm = AllReady()
   do
     local qon = KQG.DB().partyQuest and true or false
     frame.qbtn.label:SetText(qon and "파티 퀘스트 중지" or "파티 퀘스트 시작")
@@ -484,7 +501,7 @@ local function Refresh()
   frame.btn.enabled = allOk or on
   local same, why = AllSameMap()
   frame.sameOk = same
-  frame.last:SetText((on and not allPm and "|cffe6c229모든 파티원이 파티 모드를 켜면 파티 퀘스트를 시작할 수 있습니다.|r\n" or "") .. (syncState == "sharing" and "|cffe0701f퀘스트 공유 진행 중 (" .. syncCount .. "개 남음)|r\n" or (syncState == "ready" and "|cff2fa26a파티 모드 정상 실행|r\n" or "")) .. "최근 공유: " .. lastShare .. (same and "" or ("\n|cffe6c229공유 대기: " .. tostring(why) .. "|r")))
+  frame.last:SetText((on and not AllPM() and "|cffe6c229모든 파티원이 파티 모드를 켜면 퀘스트 공유가 시작되고, 끝나면 파티 퀘스트를 시작할 수 있습니다.|r\n" or "") .. (syncState == "sharing" and "|cffe0701f퀘스트 공유 진행 중 (" .. syncCount .. "개 남음)|r\n" or (syncState == "ready" and "|cff2fa26a파티 모드 정상 실행|r\n" or "")) .. "최근 공유: " .. lastShare .. (same and "" or ("\n|cffe6c229공유 대기: " .. tostring(why) .. "|r")))
   if frame.tShare and frame.tShare.refresh then frame.tShare.refresh() end
   frame.btn.label:SetTextColor(1, 1, 1)
   for i = 1, ROWS do
@@ -500,7 +517,7 @@ local function Refresh()
         row.lv:SetText(tostring(st.level))
         local mn = KQG.MapName and st.map and st.map > 0 and KQG.MapName(st.map) or "-"
         row.zone:SetText(mn)
-        row.pm:SetText(st.pm and "|cff2fa26a●|r" or "|cffe04a3a●|r")
+        row.pm:SetText(st.pm and (st.syncing and "|cffe6c229●|r" or "|cff2fa26a●|r") or "|cffe04a3a●|r")
         row.pq:SetText((st.pm and st.pq) and "|cff2fa26a●|r" or "|cffe04a3a●|r")
       else
         row.addon:SetText("|cffe04a3a미사용|r")
@@ -562,7 +579,7 @@ end
 local function ShareTick()
   local db = KQG.DB()
   if not db.partyMode or db.partyShare == false then return end
-  if db.partyQuest and shareLocked then return end
+  if syncState ~= "sharing" then return end   -- 파티 모드를 켠 직후 공유 단계에서만 공유한다
   if InCombatLockdown and InCombatLockdown() then return end
   if not AllSameMap() then return end
   local ms = Members()
@@ -613,19 +630,27 @@ local function Announce(msg)
 end
 
 -- 공유가 필요한 퀘스트가 남았는지 확인해 "공유 진행 중" / "정상 실행" 상태를 알린다.
-local function SyncTick()
+local function SyncTick0()
   local d = KQG.DB()
-  if d.partyQuest and shareLocked then return end
+  if not (d.partyMode and InParty()) then
+    syncState = nil
+    shareLocked = false
+    return
+  end
   if d.partyQuest then
     for _, m in ipairs(Members()) do
       if not m.me and not roster[Short(m.name)] then shareLocked = true syncState = nil return end
     end
+    if shareLocked then return end
+    if not AllSameMap() then return end
   end
-  if d.partyQuest and not AllSameMap() then return end
-  if not (d.partyMode and InParty() and AllPM() and AllSameMap()) then
-    syncState = nil
+  if shareLocked then
+    -- 공유가 끝난 상태: 누가 파티 모드를 끄면 처음부터 다시 한다
+    if not AllPM() and not d.partyQuest then shareLocked = false syncState = nil end
     return
   end
+  if not AllPM() then syncState = nil return end
+  if not AllSameMap() then return end
   local set = KQG.LogSet and KQG.LogSet() or {}
   local map = CurMap()
   local pend, n = {}, 0
@@ -668,9 +693,20 @@ local function SyncTick()
   if syncState ~= prev then pcall(Refresh) end
   if syncState == "ready" and prev ~= "ready" then
     Print("퀘스트 공유 종료 - " .. (d.partyQuest and "파티 퀘스트 진행 중" or "파티 퀘스트를 시작하세요"))
-    if d.partyQuest then shareLocked = true end
+    shareLocked = true
     Banner("퀘스트 공유 종료", d.partyQuest and "파티 퀘스트 진행 중" or "파티 퀘스트를 시작하세요", 10)
     if KQG.Compute then pcall(KQG.Compute) end
+  end
+end
+
+local lastSyncSig
+local function SyncTick()
+  SyncTick0()
+  local sig = tostring(syncState) .. "/" .. tostring(shareLocked)
+  if sig ~= lastSyncSig then
+    lastSyncSig = sig
+    Broadcast(true)
+    pcall(Refresh)
   end
 end
 
@@ -708,6 +744,8 @@ Banner = function(l1, l2, secs)
   bannerF:Show()
 end
 
+KQG.Banner = Banner
+
 SetPartyQuest = function(on, remote, ownerArg)
   local db = KQG.DB()
   on = on and true or false
@@ -715,8 +753,7 @@ SetPartyQuest = function(on, remote, ownerArg)
   db.partyQuest = on
   if on then
     if KQG.SetAnchor then KQG.SetAnchor(CurMap()) end
-    shareLocked = false   -- 시작한 자리에서 공유를 한 번 진행하고, 끝나면 잠근다
-    syncState = nil
+    shareLocked = true   -- 공유는 파티 퀘스트 시작 전에 이미 끝났다
     lockedOwner = (ownerArg and ownerArg ~= "") and ownerArg or OwnerName()
     db.partyPrevGuideOff = KQG.GuideIsOff and KQG.GuideIsOff() or false
     if KQG.GuideSet then KQG.GuideSet(false) end
@@ -812,6 +849,10 @@ local function Build()
       Print("파티원 모두가 파티 모드를 켜야 파티 퀘스트를 시작할 수 있습니다.")
       return
     end
+    if not db.partyQuest and not AllReady() then
+      Print("퀘스트 공유가 모두 끝나면 파티 퀘스트를 시작할 수 있습니다.")
+      return
+    end
     if db.partyQuest then
       SetPartyQuest(false, false)
     else
@@ -843,6 +884,7 @@ local function Build()
       if db.partyQuest then SetPartyQuest(false, true) end
       db.partyMode = false
       syncState = nil
+      shareLocked = false
       Print("파티 모드를 껐습니다.")
       Broadcast(true)
     else
@@ -1053,7 +1095,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
           for id in string.gmatch(ids, "%d+") do set[tonumber(id)] = true end
         end
         roster[sender] = { ver = ver, level = tonumber(lv), map = tonumber(map), log = tonumber(log),
-          zdone = tonumber(zd), ztotal = tonumber(zt), t = GetTime(), ids = set, pm = (pmf == "1"), pq = (pqf == "1") }
+          zdone = tonumber(zd), ztotal = tonumber(zt), t = GetTime(), ids = set, pm = (pmf == "1" or pmf == "2"), syncing = (pmf == "2"), pq = (pqf == "1") }
         Refresh()
       end
     elseif kind == "P" then
