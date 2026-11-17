@@ -2,6 +2,10 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.23.0",
+    "파티/길드 공유: 수집한 퀘스트(받는 곳, 제출 곳, 목표 위치)를 같은 파티·길드의 상수팩 사용자와 자동으로 주고받습니다. 받은 퀘스트는 바로 안내에 쓰입니다.",
+    "/kqg 수집 에 공유 상태(보낸/받은 건수, 만난 사용자)도 같이 나옵니다.",
+  },
   { ver = "0.22.1",
     "몬스터 주의 알림을 없앴습니다. (적이 이미 눈에 보인 뒤에 알려 줘서 쓸모가 적었음)",
   },

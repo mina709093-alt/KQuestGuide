@@ -149,11 +149,12 @@ KQG.InjectFound = function()
   for qid, f in pairs(d.found) do pcall(InjectOne, qid, f) end
 end
 
-local function Changed(qid)
+local function Changed(qid, received)
   local d = DB()
   if not d or not d.found[qid] then return end
   pcall(InjectOne, qid, d.found[qid])
   if KQG.RebuildIndex then KQG.RebuildIndex() end
+  if not received and SangsuData and SangsuData.Changed then SangsuData:Changed("KQG") end
 end
 
 ---------------------------------------------------------------------------
@@ -318,6 +319,7 @@ KQG.FoundCommand = function()
     for _, o in ipairs(f.obj or {}) do np = np + #(o.pts or {}) end
   end
   KQG.Print(string.format("수집한 퀘스트 %d개 (제출 위치 아는 것 %d개) / 목표 위치 %d곳", nq, ne, np))
+  if SangsuData and SangsuData.Status then KQG.Print(SangsuData:Status()) end
   local shown = 0
   for qid, f in pairs(d.found) do
     if f.title and not InOriginal(qid) and shown < 10 then
@@ -325,4 +327,119 @@ KQG.FoundCommand = function()
       KQG.Print("  " .. qid .. " " .. f.title .. (f.start and f.start[6] and (" - " .. f.start[6]) or ""))
     end
   end
+end
+
+---------------------------------------------------------------------------
+-- 파티/길드 공유 (상수팩 공용 공유 SangsuData 사용)
+--   q:번호 = 이름/레벨/준 곳, e:번호 = 제출 곳, o:번호:목표 = 목표 위치
+---------------------------------------------------------------------------
+local function safe(v) return (tostring(v or ""):gsub("[|~%^,;:]", " ")) end
+local function encLoc(l)
+  if not l then return "" end
+  return table.concat({ l[1] or "n", l[2] or 0, l[3] or 0, l[4] or 0, l[5] or 0, safe(l[6]), l[7] or "" }, "^")
+end
+local function decLoc(s)
+  local t = {}
+  for part in ((s or "") .. "^"):gmatch("([^%^]*)%^") do t[#t + 1] = part end
+  local m, x, y = tonumber(t[3]), tonumber(t[4]), tonumber(t[5])
+  if not (m and x and y) then return nil end
+  return { t[1] == "o" and "o" or "n", tonumber(t[2]) or 0, m, x, y, t[6] ~= "" and t[6] or "?", t[7] ~= "" and t[7] or nil }
+end
+local function fields(s)
+  local t = {}
+  for part in ((s or "") .. "~"):gmatch("([^~]*)~") do t[#t + 1] = part end
+  return t
+end
+
+local function HasKey(key)
+  local kind, qid, i = key:match("^(%a):(%d+):?(%d*)$")
+  qid, i = tonumber(qid), tonumber(i)
+  if not qid then return true end
+  local d = DB()
+  local f = d and d.found[qid]
+  if kind == "q" then return InOriginal(qid) or (f and f.title and f.start) and true or false
+  elseif kind == "e" then return InOriginal(qid) or (f and f["end"]) and true or false
+  elseif kind == "o" then
+    if not WantObjectives(qid) then return true end
+    local o = f and f.obj and f.obj[i]
+    return (o and o.pts and #o.pts > 0) and true or false
+  end
+  return true
+end
+
+local function Keys()
+  local d = DB()
+  local t = {}
+  if not d then return t end
+  for qid, f in pairs(d.found) do
+    if not InOriginal(qid) then
+      if f.title and f.start then t[#t + 1] = "q:" .. qid end
+      if f["end"] then t[#t + 1] = "e:" .. qid end
+    end
+    if WantObjectives(qid) then
+      for i, o in pairs(f.obj or {}) do
+        if o.pts and #o.pts > 0 then t[#t + 1] = "o:" .. qid .. ":" .. i end
+      end
+    end
+  end
+  return t
+end
+
+local function Encode(key)
+  local kind, qid, i = key:match("^(%a):(%d+):?(%d*)$")
+  qid, i = tonumber(qid), tonumber(i)
+  local d = DB()
+  local f = d and qid and d.found[qid]
+  if not f then return nil end
+  if kind == "q" and f.title and f.start then
+    return table.concat({ safe(f.title), f.lvl or 0, encLoc(f.start), f.after or "" }, "~")
+  elseif kind == "e" and f["end"] then
+    return encLoc(f["end"])
+  elseif kind == "o" then
+    local o = f.obj and f.obj[i]
+    if not (o and o.pts and #o.pts > 0) then return nil end
+    local pts = {}
+    for _, p in ipairs(o.pts) do pts[#pts + 1] = p[1] .. ":" .. p[2] .. ":" .. p[3] end
+    return table.concat({ o.type or "k", safe(o.name), o.need or 0, table.concat(pts, ";") }, "~")
+  end
+end
+
+local function Apply(key, payload, who)
+  local kind, qid, i = key:match("^(%a):(%d+):?(%d*)$")
+  qid, i = tonumber(qid), tonumber(i)
+  if not qid then return false end
+  local f = Entry(qid, true)
+  local t = fields(payload)
+  if kind == "q" then
+    local loc = decLoc(t[3])
+    if not (t[1] and t[1] ~= "" and loc) then return false end
+    f.title, f.lvl, f.start, f.after = t[1], tonumber(t[2]), loc, tonumber(t[4])
+    f.rx = f.rx or who
+  elseif kind == "e" then
+    local loc = decLoc(payload)
+    if not loc then return false end
+    f["end"] = loc
+    f.rx = f.rx or who
+  elseif kind == "o" and i then
+    local pts = {}
+    for m, x, y in (t[4] or ""):gmatch("([%d.]+):([%d.]+):([%d.]+)") do
+      pts[#pts + 1] = { tonumber(m), tonumber(x), tonumber(y) }
+    end
+    if #pts == 0 then return false end
+    f.obj = f.obj or {}
+    f.obj[i] = { type = t[1] ~= "" and t[1] or "k", name = t[2], need = tonumber(t[3]), pts = pts, rx = who }
+  else
+    return false
+  end
+  Changed(qid, true)
+  return true
+end
+
+if SangsuData and SangsuData.Register then
+  SangsuData:Register("KQG", {
+    keys = Keys, has = HasKey, encode = Encode, apply = Apply,
+    onReceived = function(total, from)
+      KQG.Print(string.format("파티/길드원에게서 퀘스트 데이터 %d건을 받았습니다. (%s)", total, from))
+    end,
+  })
 end
