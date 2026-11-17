@@ -2,6 +2,11 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.21.0",
+    "위험 구간 경고: 전투 전에 주변이 위험해 보이면 화면 가운데에 짧게 알려 줍니다. (적 이름표가 켜져 있어야 함)",
+    "혼자일 때는 적 3마리 이상 또는 2레벨 이상 높은 적, 파티일 때는 적 5마리 이상 또는 3레벨 이상 높은 적. 정예는 항상 알림. 같은 곳은 2분에 한 번.",
+    "/kqg 위험 으로 켜고 끕니다.",
+  },
   { ver = "0.20.2",
     "\"KQuestGuide가 지원하는 기능이 차단되었습니다\" 창이 뜨던 문제를 고쳤습니다. (게임이 막아 둔 거리 확인 기능을 쓰지 않도록 변경)",
   },

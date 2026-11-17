@@ -3,7 +3,7 @@
 --
 -- 하는 일: 지금 있는 지역에서 "받을 수 있는 퀘스트"와 "제출할 퀘스트"를 가까운 순서로 보여 주고,
 --          다음 목적지 방향을 화살표로 알려 줍니다. 퀘스트 이름/NPC/지역은 모두 한글입니다.
--- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
+-- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 위험  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
 
 local Q = KQG_DATA or {}
 local MAP = KQG_MAP or {}
@@ -2903,6 +2903,8 @@ SlashCmdList["KQG"] = function(msg)
     if KQG.DungeonCommand then KQG.DungeonCommand(msg:match("^%S+%s+(.*)$") or "") end
   elseif msg == "기록" or msg == "journal" then
     if KQG.JournalCommand then KQG.JournalCommand() end
+  elseif msg == "위험" or msg == "danger" then
+    if KQG.DangerCommand then KQG.DangerCommand() end
   elseif msg == "debug" then
     db.debug = not db.debug
     local n = 0
