@@ -3,7 +3,7 @@
 ## Title-koKR: 퀘스트 길잡이
 ## Notes: Korean quest guide: shows next quests to accept/turn in near you, with an arrow
 ## Notes-koKR: 지금 지역에서 받을 퀘스트와 제출할 퀘스트를 가까운 순서로 안내합니다
-## Version: 0.21.0
+## Version: 0.21.1
 ## Category: 상수팩
 ## OptionalDeps: ShortestPathForever
 ## SavedVariables: KQGDB, SangsuPackDB

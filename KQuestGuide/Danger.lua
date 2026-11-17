@@ -1,10 +1,11 @@
--- 위험 구간 경고: 전투 중이 아닐 때 주변 적 이름표를 보고 위험해 보이면 화면 가운데에 짧게 알립니다.
+-- 주의 알림: 전투 중이 아닐 때 주변 적 이름표를 보고, 조심하면 좋을 상황이면 화면 가운데에 짧게 알립니다.
+--   (막는 경고가 아니라 "조심하세요" 정도의 안내. 도전은 플레이어의 몫)
 --   혼자일 때: 적 3마리 이상, 또는 나보다 2레벨 이상 높은 적, 또는 정예
 --   파티일 때: 적 5마리 이상, 또는 나보다 3레벨 이상 높은 적, 또는 정예
 --   같은 곳(지도 위 가까운 범위)에서는 2분에 한 번만 알립니다.
 -- 검증(DangerProbe, 2026-11-17): 적 이름표로 수·레벨·정예를 읽을 수 있고 전투 중에도 숨겨지지 않음.
 -- 적 이름표가 켜져 있어야 동작합니다. (아군 이름표는 필요 없음)
--- /kqg 위험 : 켜기/끄기
+-- /kqg 주의 (또는 /kqg 위험) : 켜기/끄기
 local KQG = KQG
 if not KQG then return end
 
@@ -39,7 +40,7 @@ msg:Hide()
 msg.text = msg:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 msg.text:SetPoint("CENTER")
 pcall(msg.text.SetFont, msg.text, "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Bold.ttf", 20, "OUTLINE")
-msg.text:SetTextColor(1, 0.55, 0.2)
+msg.text:SetTextColor(1, 0.85, 0.35)
 local shownAt = 0
 msg:SetScript("OnUpdate", function(self)
   local t = GetTime() - shownAt
@@ -95,7 +96,7 @@ local function Scan()
   local now = GetTime()
   if told[key] and now - told[key] < COOLDOWN then return end
   told[key] = now
-  Show("⚠ 주변 위험: " .. table.concat(parts, " · "))
+  Show("주의 · 근처에 " .. table.concat(parts, ", ") .. " · 조심하세요")
 end
 
 local acc = 0
@@ -111,5 +112,5 @@ KQG.DangerCommand = function()
   local d = db()
   if not d then return end
   d.danger = not On()
-  Print("위험 구간 경고 " .. (On() and "켜짐 (혼자: 3마리/2레벨↑, 파티: 5마리/3레벨↑, 정예는 항상)" or "꺼짐"))
+  Print("주의 알림 " .. (On() and "켜짐 (혼자: 3마리/2레벨↑, 파티: 5마리/3레벨↑, 정예는 항상)" or "꺼짐"))
 end
