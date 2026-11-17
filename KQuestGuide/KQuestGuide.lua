@@ -3,7 +3,7 @@
 --
 -- 하는 일: 지금 있는 지역에서 "받을 수 있는 퀘스트"와 "제출할 퀘스트"를 가까운 순서로 보여 주고,
 --          다음 목적지 방향을 화살표로 알려 줍니다. 퀘스트 이름/NPC/지역은 모두 한글입니다.
--- 명령어: /kqg (창 열기/닫기)  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
+-- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
 
 local Q = KQG_DATA or {}
 local MAP = KQG_MAP or {}
@@ -406,14 +406,57 @@ local function Backchain(id, level, depth)
   return nil
 end
 
+-- 목표 이름 한글화: 데이터에 영어 이름만 있으면, 퀘스트 로그(게임 클라이언트)가 주는 한글 목표 문구를 쓴다
+local OBJ_API_TYPE = { k = "monster", i = "item", o = "object", e = "event" }
+local function HasHangul(s)
+  return type(s) == "string" and s:find("[\234-\237][\128-\191][\128-\191]") ~= nil
+end
+local function CleanObjText(t)
+  if type(t) ~= "string" or t == "" then return nil end
+  t = t:gsub("^%s*%d+%s*/%s*%d+%s*", ""):gsub("[:：]%s*%d+%s*/%s*%d+%s*$", ""):gsub("%s*%(%d+/%d+%)%s*$", "")
+  t = t:gsub("%s+처치$", ""):gsub("%s+$", "")
+  return t ~= "" and t or nil
+end
+local function LocalObjNames(qid, rows)
+  local names = {}
+  if not (C_QuestLog and C_QuestLog.GetQuestObjectives) then return names end
+  local need = false
+  for _, o in ipairs(rows) do if o[1] ~= "e" and not HasHangul(o[2]) then need = true break end end
+  if not need then return names end
+  local ok, objs = pcall(C_QuestLog.GetQuestObjectives, qid)
+  if not ok or type(objs) ~= "table" or #objs == 0 then return names end
+  local byType, order, seenName = {}, {}, {}
+  for _, ob in ipairs(objs) do
+    local t = ob.type or "?"
+    byType[t] = byType[t] or {}
+    table.insert(byType[t], CleanObjText(ob.text))
+  end
+  for i, o in ipairs(rows) do
+    if o[1] ~= "e" and not HasHangul(o[2]) then
+      local t = OBJ_API_TYPE[o[1]] or "?"
+      local list = byType[t]
+      if not seenName[o[2]] then
+        order[t] = (order[t] or 0) + 1
+        seenName[o[2]] = order[t]
+      end
+      local pick = list and (list[seenName[o[2]]] or (#list == 1 and list[1]))
+      if not pick and #objs == 1 then pick = CleanObjText(objs[1].text) end
+      names[i] = pick
+    end
+  end
+  return names
+end
+
 local function ObjectiveSteps(qid, level)
   local rows = OBJ[qid]
   local out = {}
   if not rows then return out end
-  for _, o in ipairs(rows) do
+  local ko = inLog[qid] and LocalObjNames(qid, rows) or {}
+  for i, o in ipairs(rows) do
     local map = UiMapOf(o[3])
     if map then
-      table.insert(out, { kind = "doing", map = map, loc = { "q", qid, o[3], o[4], o[5], (o[1] == "e") and "탐험 지점" or o[2], nil }, otype = o[1] })
+      local name = (o[1] == "e") and "탐험 지점" or (ko[i] or o[2])
+      table.insert(out, { kind = "doing", map = map, loc = { "q", qid, o[3], o[4], o[5], name, nil }, otype = o[1] })
     end
   end
   return out
@@ -2839,6 +2882,10 @@ SlashCmdList["KQG"] = function(msg)
     if KQG.NpcCommand then KQG.NpcCommand(string.sub(msg, 5)) end
   elseif msg == "party" then
     if KQG.PartyCommand then KQG.PartyCommand() end
+  elseif msg == "던전" or msg == "dungeon" or string.sub(msg, 1, 7) == "dungeon" then
+    if KQG.DungeonCommand then KQG.DungeonCommand(msg:match("^%S+%s+(.*)$") or "") end
+  elseif msg == "기록" or msg == "journal" then
+    if KQG.JournalCommand then KQG.JournalCommand() end
   elseif msg == "debug" then
     db.debug = not db.debug
     local n = 0
