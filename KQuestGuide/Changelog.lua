@@ -2,6 +2,10 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.20.1",
+    "수락할 NPC를 대상으로 잡고 가까이 섰는데 대화창이 열리지 않으면(줄 퀘스트가 없음), 그 퀘스트를 건너뛸지 물어봅니다.",
+    "수락할 NPC 머리 위 느낌표(아군 이름표가 필요했던 기능)는 없앴습니다. 툴팁 표시와 대상 알림은 그대로입니다.",
+  },
   { ver = "0.20.0",
     "던전 안내 (/kqg 던전): 던전 퀘스트를 한 번에 끝낼 수 있는 레벨(남은 던전 퀘스트 중 가장 높은 레벨 - 1)에 맞춰 안내합니다.",
     "권장 레벨 4레벨 전부터 미리 받아 둘 퀘스트, 받는 곳, 먼저 해야 할 선행 퀘스트를 보여 주고, 권장 레벨이 되면 채팅창에 한 번만 알려 줍니다. (/kqg dungeon off 로 끄기)",

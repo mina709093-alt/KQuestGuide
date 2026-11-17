@@ -2,7 +2,7 @@
 -- 안내 목록 앞쪽(8단계)의 "수락" 단계에 있는 NPC를 번호로 찾아 표시합니다.
 --   1) NPC 툴팁에 "▶ 지금 수락할 NPC: 「퀘스트명」" 줄을 붙입니다.
 --   2) NPC를 대상으로 잡으면 채팅창에 한 줄 알립니다 (같은 NPC는 90초에 한 번).
---   3) 이름표(네임플레이트)가 보이면 머리 위에 노란 느낌표를 붙입니다. (이름표가 안 보이는 설정이면 나타나지 않음)
+--   3) 대상으로 잡고 가까이 섰는데 대화창이 안 열리면(줄 퀘스트가 없음) 건너뛸지 물어봅니다.
 -- 판정은 번호(GUID 안의 NPC 번호)로만 합니다. 게시판 같은 오브젝트는 대상이 아닙니다.
 -- /kqg npc : 켜기/끄기   /kqg npc debug : 점검 정보
 local KQG = KQG
@@ -83,64 +83,87 @@ if not hooked and TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCa
   end)
 end
 
--- ===== 이름표 아이콘 =====
-local function PlateIcon(plate)
-  local t = plate.KQGNpc
-  if t then return t end
-  t = plate:CreateTexture(nil, "OVERLAY")
-  t:SetSize(18, 18)
-  t:SetPoint("BOTTOM", plate, "TOP", 0, 2)
-  t:SetTexture("Interface\\GossipFrame\\AvailableQuestIcon")
-  t:Hide()
-  plate.KQGNpc = t
-  return t
-end
+-- ===== 퀘스트를 주지 않는 NPC 감지 =====
+-- 수락할 NPC를 대상으로 잡고 가까이(약 10미터) 섰는데 6초 동안 대화창이 열리지 않으면
+-- "이 NPC는 지금 그 퀘스트를 주지 않는 것 같아요. 건너뛸까요?"를 묻습니다. (NPC마다 한 번만)
+-- 대화창이 열리는 경우는 기존 기능(대화창에 퀘스트가 없으면 자동 건너뛰기)이 처리합니다.
+local watch            -- { id, name, quests, since }
+local asked = {}       -- NPC 번호 -> 이미 물어봄
+local DIALOG_EVENTS = { "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE", "MERCHANT_SHOW", "TRAINER_SHOW", "BANKFRAME_OPENED", "TAXIMAP_OPENED" }
 
-local function UpdatePlate(unit)
-  if not C_NamePlate or not C_NamePlate.GetNamePlateForUnit then return end
-  local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
-  if not ok or not plate then return end
-  stat.plate = stat.plate + 1
-  stat.lastPlate = tostring(unit)
-  local icon = PlateIcon(plate)
-  local names = On() and Match(unit)
-  if names then icon:Show() stat.plateHit = stat.plateHit + 1 else icon:Hide() end
-end
-
-local function RefreshPlates()
-  if not C_NamePlate or not C_NamePlate.GetNamePlates then return end
-  local ok, plates = pcall(C_NamePlate.GetNamePlates)
-  if not ok or type(plates) ~= "table" then return end
-  for _, p in ipairs(plates) do
-    local u = p.namePlateUnitToken or (p.UnitFrame and p.UnitFrame.unit)
-    if u then UpdatePlate(u) end
+local function WantedQuests(id)
+  local ids = {}
+  local steps = KQG.Steps and KQG.Steps() or {}
+  for i = 1, math.min(#steps, 8) do
+    local g = steps[i]
+    if g and g.kind == "accept" and g.loc and g.loc[1] == "n" and g.loc[2] == id then
+      for _, qid in ipairs(g.quests or {}) do ids[#ids + 1] = qid end
+    end
   end
+  return ids
 end
-KQG.NpcRefresh = RefreshPlates
+
+StaticPopupDialogs = StaticPopupDialogs or {}
+StaticPopupDialogs["KQG_NPC_NO_QUEST"] = {
+  text = "%s",
+  button1 = "건너뛰기",
+  button2 = "아니요",
+  OnAccept = function(_, data)
+    if data and KQG.SkipQuests then KQG.SkipQuests(data) end
+  end,
+  timeout = 30,
+  whileDead = false,
+  hideOnEscape = true,
+  preferredIndex = 3,
+}
+
+local function InRange()
+  if not CheckInteractDistance then return false end
+  local ok, r = pcall(CheckInteractDistance, "target", 3)
+  return ok and r and true or false
+end
+
+local wf = CreateFrame("Frame")
+for _, e in ipairs(DIALOG_EVENTS) do pcall(wf.RegisterEvent, wf, e) end
+wf:SetScript("OnEvent", function() watch = nil end) -- 대화창이 열렸으면 감지 끝
+local wacc = 0
+wf:SetScript("OnUpdate", function(_, el)
+  wacc = wacc + el
+  if wacc < 0.5 then return end
+  wacc = 0
+  if not watch then return end
+  if InCombatLockdown() or not On() then watch = nil return end
+  local _, id = Match("target")
+  if id ~= watch.id then watch = nil return end
+  if not InRange() then watch.since = nil return end
+  watch.since = watch.since or GetTime()
+  if GetTime() - watch.since >= 6 then
+    local w = watch
+    watch = nil
+    asked[w.id] = true
+    local qs = WantedQuests(w.id)
+    if #qs == 0 then return end
+    local npc = UnitName("target") or "이 NPC"
+    if issecretvalue and issecretvalue(npc) then npc = "이 NPC" end
+    StaticPopup_Show("KQG_NPC_NO_QUEST", ("%s에게 다가갔지만 대화창이 열리지 않았어요.\n「%s」를 지금 받을 수 없는 것 같아요. 이 퀘스트를 건너뛸까요?\n(되돌리기: /kqg back)"):format(npc, w.label), nil, qs)
+  end
+end)
+
+KQG.NpcRefresh = function() end -- 예전 이름표 표시는 없앰 (호환용)
 
 local f = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_TARGET_CHANGED", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
-  pcall(f.RegisterEvent, f, e)
-end
-f:SetScript("OnEvent", function(_, event, unit)
+pcall(f.RegisterEvent, f, "PLAYER_TARGET_CHANGED")
+f:SetScript("OnEvent", function(_, event)
   local ok, err = pcall(function()
-    if event == "PLAYER_TARGET_CHANGED" then
-      if not On() then return end
-      local names, id = Match("target")
-      if not names then return end
-      stat.target = stat.target + 1
-      local now = GetTime()
-      if told[id] and now - told[id] < 90 then return end
-      told[id] = now
-      Print("이 NPC에게 퀘스트를 수락하세요: 「" .. Label(names) .. "」")
-    elseif event == "NAME_PLATE_UNIT_ADDED" then
-      UpdatePlate(unit)
-    elseif event == "NAME_PLATE_UNIT_REMOVED" then
-      if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
-        local ok2, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
-        if ok2 and plate and plate.KQGNpc then plate.KQGNpc:Hide() end
-      end
-    end
+    if not On() then return end
+    local names, id = Match("target")
+    if not names then return end
+    stat.target = stat.target + 1
+    if not asked[id] then watch = { id = id, label = Label(names) } end
+    local now = GetTime()
+    if told[id] and now - told[id] < 90 then return end
+    told[id] = now
+    Print("이 NPC에게 퀘스트를 수락하세요: 「" .. Label(names) .. "」")
   end)
   if not ok and not stat.err then stat.err = tostring(err) end
 end)
@@ -154,18 +177,10 @@ KQG.NpcCommand = function(arg)
     for _ in pairs(w) do c = c + 1 end
     Print("NPC 표시 점검: 켜짐=" .. tostring(On()) .. " / 수락 대기 NPC " .. c .. "명")
     Print("툴팁 훅=" .. tostring(hooked) .. " 툴팁 " .. stat.tip .. "회 (일치 " .. stat.tipHit .. ")")
-    Print("대상 일치 " .. stat.target .. "회 / 이름표 이벤트 " .. stat.plate .. "회 (일치 " .. stat.plateHit .. ")")
-    Print("이름표 API=" .. tostring(C_NamePlate and C_NamePlate.GetNamePlateForUnit and true or false)
-      .. " / 마지막 GUID " .. stat.lastGuid .. " 번호 " .. stat.lastId .. " 이름표 " .. stat.lastPlate)
+    Print("대상 일치 " .. stat.target .. "회 / 마지막 GUID " .. stat.lastGuid .. " 번호 " .. stat.lastId)
     if stat.err then Print("오류: " .. stat.err) end
     return
   end
   d.npcMark = not On()
   Print("수락 NPC 표시 " .. (On() and "켜짐" or "꺼짐"))
-  RefreshPlates()
-end
-
--- 안내 단계가 바뀌면 이름표 표시도 맞춰 줌
-if C_Timer and C_Timer.NewTicker then
-  C_Timer.NewTicker(3, function() pcall(RefreshPlates) end)
 end

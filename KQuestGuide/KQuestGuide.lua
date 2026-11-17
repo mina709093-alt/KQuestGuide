@@ -2769,6 +2769,23 @@ KQG.SetForced = function(g)
   pcall(UpdateArrow)
 end
 KQG.GetForced = function() return forced end
+-- 퀘스트를 건너뛰기 목록에 넣기 (NPC가 퀘스트를 주지 않을 때). 되돌리기: /kqg back
+KQG.SkipQuests = function(ids)
+  local names = {}
+  lastSkip = {}
+  for _, id in ipairs(ids or {}) do
+    if not db.skipped[id] then
+      db.skipped[id] = true
+      lastSkip[#lastSkip + 1] = id
+      names[#names + 1] = QName(id)
+    end
+  end
+  if #names > 0 then
+    Print("[" .. table.concat(names, ", ") .. "] 건너뜀. (되돌리기: /kqg back)")
+    pinned = nil
+    dirty = true
+  end
+end
 KQG.Compute = function() dirty = true Compute() end
 KQG.Steps = function() return steps end
 KQG.StepsRaw = function() return steps end
