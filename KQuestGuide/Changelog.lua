@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.20.2",
+    "\"KQuestGuide가 지원하는 기능이 차단되었습니다\" 창이 뜨던 문제를 고쳤습니다. (게임이 막아 둔 거리 확인 기능을 쓰지 않도록 변경)",
+  },
   { ver = "0.20.1",
     "수락할 NPC를 대상으로 잡고 가까이 섰는데 대화창이 열리지 않으면(줄 퀘스트가 없음), 그 퀘스트를 건너뛸지 물어봅니다.",
     "수락할 NPC 머리 위 느낌표(아군 이름표가 필요했던 기능)는 없앴습니다. 툴팁 표시와 대상 알림은 그대로입니다.",

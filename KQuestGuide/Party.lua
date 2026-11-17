@@ -567,13 +567,13 @@ local function PushQuest(qid)
   return true
 end
 
+-- 보호된 거리 함수(CheckInteractDistance)는 쓰지 않는다 (포에버에서 "기능 차단" 창이 뜰 수 있음)
 local function InRange(unit)
-  local near = true
-  if CheckInteractDistance then
-    local ok, r = pcall(CheckInteractDistance, unit, 4)
-    if ok then near = r and true or false end
+  if UnitInRange then
+    local ok, r, checked = pcall(UnitInRange, unit)
+    if ok and checked and not (issecretvalue and issecretvalue(r)) then return r and true or false end
   end
-  return near
+  return true
 end
 
 local function ShareTick()

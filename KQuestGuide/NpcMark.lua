@@ -91,36 +91,54 @@ local watch            -- { id, name, quests, since }
 local asked = {}       -- NPC 번호 -> 이미 물어봄
 local DIALOG_EVENTS = { "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE", "MERCHANT_SHOW", "TRAINER_SHOW", "BANKFRAME_OPENED", "TAXIMAP_OPENED" }
 
+-- 수락 단계의 퀘스트 번호와 NPC 위치 (지도 번호, x, y)
 local function WantedQuests(id)
-  local ids = {}
+  local ids, map, x, y = {}, nil, nil, nil
   local steps = KQG.Steps and KQG.Steps() or {}
   for i = 1, math.min(#steps, 8) do
     local g = steps[i]
     if g and g.kind == "accept" and g.loc and g.loc[1] == "n" and g.loc[2] == id then
       for _, qid in ipairs(g.quests or {}) do ids[#ids + 1] = qid end
+      map, x, y = map or g.map, x or g.loc[4], y or g.loc[5]
     end
   end
-  return ids
+  return ids, map, x, y
 end
 
-StaticPopupDialogs = StaticPopupDialogs or {}
-StaticPopupDialogs["KQG_NPC_NO_QUEST"] = {
-  text = "%s",
-  button1 = "건너뛰기",
-  button2 = "아니요",
-  OnAccept = function(_, data)
-    if data and KQG.SkipQuests then KQG.SkipQuests(data) end
-  end,
-  timeout = 30,
-  whileDead = false,
-  hideOnEscape = true,
-  preferredIndex = 3,
-}
+-- 가까이 있는지: 보호된 거리 함수(CheckInteractDistance)는 쓰지 않고, 데이터의 NPC 좌표와 내 위치로 잰다
+local NEAR_YARDS = 15
+local function InRange(w)
+  if not (w.map and w.x and w.y and KQG.Measure) then return false end
+  local ok, d = pcall(KQG.Measure, w.map, w.x, w.y)
+  return ok and d and d <= NEAR_YARDS or false
+end
 
-local function InRange()
-  if not CheckInteractDistance then return false end
-  local ok, r = pcall(CheckInteractDistance, "target", 3)
-  return ok and r and true or false
+-- 확인 창 (블리자드 StaticPopup 을 건드리지 않도록 직접 만든 창)
+local ask
+local function ShowAsk(msg, qids)
+  if not ask then
+    ask = CreateFrame("Frame", "KQGNoQuestAsk", UIParent, "BackdropTemplate")
+    ask:SetSize(360, 120)
+    ask:SetPoint("TOP", 0, -160)
+    ask:SetFrameStrata("DIALOG")
+    ask:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+    ask:SetBackdropColor(0.09, 0.10, 0.13, 0.96)
+    ask:SetBackdropBorderColor(0.32, 0.35, 0.40, 1)
+    ask.text = ask:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    ask.text:SetPoint("TOP", 0, -14)
+    ask.text:SetWidth(330)
+    local yes = CreateFrame("Button", nil, ask, "UIPanelButtonTemplate")
+    yes:SetSize(100, 24); yes:SetPoint("BOTTOMRIGHT", ask, "BOTTOM", -6, 12); yes:SetText("건너뛰기")
+    yes:SetScript("OnClick", function() ask:Hide(); if ask.qids and KQG.SkipQuests then KQG.SkipQuests(ask.qids) end end)
+    local no = CreateFrame("Button", nil, ask, "UIPanelButtonTemplate")
+    no:SetSize(100, 24); no:SetPoint("BOTTOMLEFT", ask, "BOTTOM", 6, 12); no:SetText("아니요")
+    no:SetScript("OnClick", function() ask:Hide() end)
+    tinsert(UISpecialFrames, "KQGNoQuestAsk")
+  end
+  ask.qids = qids
+  ask.text:SetText(msg)
+  ask:Show()
+  C_Timer.After(30, function() if ask.qids == qids then ask:Hide() end end)
 end
 
 local wf = CreateFrame("Frame")
@@ -135,7 +153,7 @@ wf:SetScript("OnUpdate", function(_, el)
   if InCombatLockdown() or not On() then watch = nil return end
   local _, id = Match("target")
   if id ~= watch.id then watch = nil return end
-  if not InRange() then watch.since = nil return end
+  if not InRange(watch) then watch.since = nil return end
   watch.since = watch.since or GetTime()
   if GetTime() - watch.since >= 6 then
     local w = watch
@@ -145,7 +163,7 @@ wf:SetScript("OnUpdate", function(_, el)
     if #qs == 0 then return end
     local npc = UnitName("target") or "이 NPC"
     if issecretvalue and issecretvalue(npc) then npc = "이 NPC" end
-    StaticPopup_Show("KQG_NPC_NO_QUEST", ("%s에게 다가갔지만 대화창이 열리지 않았어요.\n「%s」를 지금 받을 수 없는 것 같아요. 이 퀘스트를 건너뛸까요?\n(되돌리기: /kqg back)"):format(npc, w.label), nil, qs)
+    ShowAsk(("%s에게 다가갔지만 대화창이 열리지 않았어요.\n「%s」를 지금 받을 수 없는 것 같아요.\n이 퀘스트를 건너뛸까요? (되돌리기: /kqg back)"):format(npc, w.label), qs)
   end
 end)
 
@@ -159,7 +177,10 @@ f:SetScript("OnEvent", function(_, event)
     local names, id = Match("target")
     if not names then return end
     stat.target = stat.target + 1
-    if not asked[id] then watch = { id = id, label = Label(names) } end
+    if not asked[id] then
+      local _, map, x, y = WantedQuests(id)
+      watch = { id = id, label = Label(names), map = map, x = x, y = y }
+    end
     local now = GetTime()
     if told[id] and now - told[id] < 90 then return end
     told[id] = now
