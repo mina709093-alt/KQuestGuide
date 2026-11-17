@@ -3,7 +3,7 @@
 --
 -- 하는 일: 지금 있는 지역에서 "받을 수 있는 퀘스트"와 "제출할 퀘스트"를 가까운 순서로 보여 주고,
 --          다음 목적지 방향을 화살표로 알려 줍니다. 퀘스트 이름/NPC/지역은 모두 한글입니다.
--- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 주의  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
+-- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 수집  /kqg 주의  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
 
 local Q = KQG_DATA or {}
 local MAP = KQG_MAP or {}
@@ -2678,6 +2678,7 @@ ev:SetScript("OnEvent", function(_, e)
     db.partyQuest = false
     if db.arrow == nil then db.arrow = true end
     InitPlayer()
+    if KQG.InjectFound then pcall(KQG.InjectFound) end
     BuildIndex()
     BuildFrame()
     BuildArrow()
@@ -2762,6 +2763,7 @@ KQG.RaceBit = function() return playerRaceBit end
 KQG.ClassBit = function() return playerClassBit end
 KQG.Print = Print
 KQG.ReadLog = function() ReadLog() end
+KQG.RebuildIndex = function() doneCache = {} BuildIndex() dirty = true end
 KQG.SetForced = function(g)
   forced = g
   if g and db.guideOff then db.guideOff = false spfKey, lastWpKey = nil, nil spfNext = 0 pcall(Refresh) end
@@ -2903,6 +2905,8 @@ SlashCmdList["KQG"] = function(msg)
     if KQG.DungeonCommand then KQG.DungeonCommand(msg:match("^%S+%s+(.*)$") or "") end
   elseif msg == "기록" or msg == "journal" then
     if KQG.JournalCommand then KQG.JournalCommand() end
+  elseif msg == "수집" or msg == "found" then
+    if KQG.FoundCommand then KQG.FoundCommand() end
   elseif msg == "주의" or msg == "위험" or msg == "danger" then
     if KQG.DangerCommand then KQG.DangerCommand() end
   elseif msg == "debug" then

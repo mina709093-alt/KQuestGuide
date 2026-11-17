@@ -2,6 +2,11 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.22.0",
+    "퀘스트 수집: 길잡이 데이터에 없는 퀘스트를 받으면 이름, 레벨, 준 NPC와 위치를 기록하고 바로 안내에 씁니다. 제출하면 받은 NPC와 위치도 기록합니다.",
+    "목표 숫자가 오를 때 그 자리를 기록해서, 목표 위치가 없던 퀘스트도 어디서 하면 되는지 안내합니다.",
+    "/kqg 수집 으로 지금까지 모은 내용을 볼 수 있습니다. (파티/길드 공유는 다음 단계)",
+  },
   { ver = "0.21.2",
     "\"기능이 차단되었습니다\" 창이 다시 뜰 때 게임이 어떤 기능을 막았는지 기록해 두도록 했습니다. (원인 확인용, 채팅창에 한 번 안내)",
   },
