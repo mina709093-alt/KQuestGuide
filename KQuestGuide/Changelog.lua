@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.22.1",
+    "몬스터 주의 알림을 없앴습니다. (적이 이미 눈에 보인 뒤에 알려 줘서 쓸모가 적었음)",
+  },
   { ver = "0.22.0",
     "퀘스트 수집: 길잡이 데이터에 없는 퀘스트를 받으면 이름, 레벨, 준 NPC와 위치를 기록하고 바로 안내에 씁니다. 제출하면 받은 NPC와 위치도 기록합니다.",
     "목표 숫자가 오를 때 그 자리를 기록해서, 목표 위치가 없던 퀘스트도 어디서 하면 되는지 안내합니다.",
