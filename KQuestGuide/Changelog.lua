@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.21.2",
+    "\"기능이 차단되었습니다\" 창이 다시 뜰 때 게임이 어떤 기능을 막았는지 기록해 두도록 했습니다. (원인 확인용, 채팅창에 한 번 안내)",
+  },
   { ver = "0.21.1",
     "'위험 경고'를 '주의'로 바꿨습니다. 막는 느낌 없이 \"주의 · 근처에 적 4마리, 30레벨 몹 · 조심하세요\"처럼 조심하라는 정도만 알려 줍니다.",
   },
