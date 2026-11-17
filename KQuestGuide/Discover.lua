@@ -143,16 +143,37 @@ local function InjectOne(qid, f)
   end
 end
 
+-- 애드온에 들어 있는 취합 데이터(FoundData.lua)와 내 기록을 합쳐 본 모습
+local function View(qid)
+  local d = DB()
+  local f = d and d.found[qid]
+  local b = KQG_FOUND and KQG_FOUND[qid]
+  if not b then return f end
+  if not f then return b end
+  local v = {}
+  for k, x in pairs(b) do v[k] = x end
+  for k, x in pairs(f) do if k ~= "obj" then v[k] = x end end
+  v.obj = {}
+  for k, o in pairs(b.obj or {}) do v.obj[k] = o end
+  for k, o in pairs(f.obj or {}) do
+    if (o.pts and #o.pts > 0) or not v.obj[k] then v.obj[k] = o end
+  end
+  return v
+end
+
 KQG.InjectFound = function()
   local d = DB()
   if not d then return end
-  for qid, f in pairs(d.found) do pcall(InjectOne, qid, f) end
+  local seen = {}
+  for qid in pairs(KQG_FOUND or {}) do seen[qid] = true end
+  for qid in pairs(d.found) do seen[qid] = true end
+  for qid in pairs(seen) do local v = View(qid) if v then pcall(InjectOne, qid, v) end end
 end
 
 local function Changed(qid, received)
   local d = DB()
   if not d or not d.found[qid] then return end
-  pcall(InjectOne, qid, d.found[qid])
+  pcall(InjectOne, qid, View(qid))
   if KQG.RebuildIndex then KQG.RebuildIndex() end
   if not received and SangsuData and SangsuData.Changed then SangsuData:Changed("KQG") end
 end
@@ -207,7 +228,7 @@ local function OnAccept(qid)
       f.obj[i] = f.obj[i] or { type = o.type, name = o.name, need = o.need, pts = {} }
       f.obj[i].name = o.name
     end
-    if KQG.Print then KQG.Print("새 퀘스트 기록: " .. tostring(f.title) .. " (데이터에 없던 퀘스트)") end
+    if KQG.Print and not (KQG_FOUND and KQG_FOUND[qid]) then KQG.Print("새 퀘스트 기록: " .. tostring(f.title) .. " (데이터에 없던 퀘스트)") end
     Changed(qid)
   end
   pendingStart[qid] = nil
@@ -318,6 +339,9 @@ KQG.FoundCommand = function()
     if f["end"] then ne = ne + 1 end
     for _, o in ipairs(f.obj or {}) do np = np + #(o.pts or {}) end
   end
+  local nb = 0
+  for _ in pairs(KQG_FOUND or {}) do nb = nb + 1 end
+  KQG.Print(string.format("애드온에 들어 있는 수집 퀘스트 %d개", nb))
   KQG.Print(string.format("수집한 퀘스트 %d개 (제출 위치 아는 것 %d개) / 목표 위치 %d곳", nq, ne, np))
   if SangsuData and SangsuData.Status then KQG.Print(SangsuData:Status()) end
   local shown = 0
@@ -355,8 +379,7 @@ local function HasKey(key)
   local kind, qid, i = key:match("^(%a):(%d+):?(%d*)$")
   qid, i = tonumber(qid), tonumber(i)
   if not qid then return true end
-  local d = DB()
-  local f = d and d.found[qid]
+  local f = View(qid)
   if kind == "q" then return InOriginal(qid) or (f and f.title and f.start) and true or false
   elseif kind == "e" then return InOriginal(qid) or (f and f["end"]) and true or false
   elseif kind == "o" then
@@ -372,13 +395,15 @@ local function Keys()
   local t = {}
   if not d then return t end
   for qid, f in pairs(d.found) do
+    local b = KQG_FOUND and KQG_FOUND[qid] or {}
     if not InOriginal(qid) then
-      if f.title and f.start then t[#t + 1] = "q:" .. qid end
-      if f["end"] then t[#t + 1] = "e:" .. qid end
+      if f.title and f.start and not b.start then t[#t + 1] = "q:" .. qid end
+      if f["end"] and not b["end"] then t[#t + 1] = "e:" .. qid end
     end
     if WantObjectives(qid) then
       for i, o in pairs(f.obj or {}) do
-        if o.pts and #o.pts > 0 then t[#t + 1] = "o:" .. qid .. ":" .. i end
+        local bo = b.obj and b.obj[i]
+        if o.pts and #o.pts > 0 and not (bo and bo.pts and #bo.pts > 0) then t[#t + 1] = "o:" .. qid .. ":" .. i end
       end
     end
   end
