@@ -1877,8 +1877,11 @@ local function PlanCommand(arg)
 end
 
 local C_TEXT = { 0.93, 0.94, 0.96 }
-local C_MUTED = { 0.64, 0.68, 0.74 }
-local C_ACCENT = { 0.30, 0.62, 0.78 }
+local C_MUTED = { 0.55, 0.60, 0.63 }
+-- 상수 스타일 색 (Sangsu'sStyle UI 애드온과 같은 색)
+local C_ACCENT = { 0.063, 0.816, 0.627 }
+local C_SEL = { 0.045, 0.32, 0.26 }
+local BG_ALPHA = 0.92
 
 local FONT_R = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Regular.ttf"
 local FONT_B = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Bold.ttf"
@@ -1905,11 +1908,12 @@ end
 local function ApplyBg()
   local f = frame
   if not f then return end
+  -- 투명도 0%일 때 상수 스타일 기본 진하기
   local a = 1 - (db.transp or 0) / 100
-  Solid(f.bg, 0.02, 0.02, 0.03, a)
-  for _, e in ipairs(f.edges or {}) do Solid(e, 0.32, 0.35, 0.40, a) end
+  Solid(f.bg, 0.035, 0.055, 0.065, BG_ALPHA * a)
+  for _, e in ipairs(f.edges or {}) do Solid(e, 0, 0, 0, a) end
   if f.accent then Solid(f.accent, C_ACCENT[1], C_ACCENT[2], C_ACCENT[3], a) end
-  if f.line then Solid(f.line, 0.24, 0.27, 0.32, a) end
+  if f.line then Solid(f.line, 0.20, 0.25, 0.28, a) end
 end
 
 local function ForceDeferred(qid)
@@ -1941,8 +1945,8 @@ local function FlatButton(parent, text, w, primary, fn)
   b:SetHeight(24)
   b.bg = b:CreateTexture(nil, "BACKGROUND")
   b.bg:SetAllPoints()
-  local base = primary and C_ACCENT or { 0.20, 0.22, 0.27 }
-  local hover = primary and { 0.38, 0.70, 0.86 } or { 0.29, 0.32, 0.38 }
+  local base = primary and C_SEL or { 0.055, 0.085, 0.10 }
+  local hover = primary and { 0.06, 0.40, 0.32 } or { 0.08, 0.12, 0.14 }
   Solid(b.bg, base[1], base[2], base[3], 1)
   b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   b.label:SetPoint("CENTER", b, "CENTER", 0, 0)
@@ -2214,7 +2218,7 @@ local function ShowReport()
     f:SetScript("OnDragStop", function(s) s = s or this s:StopMovingOrSizing() end)
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    Solid(bg, 0.02, 0.02, 0.03, 1)
+    Solid(bg, 0.035, 0.055, 0.065, 1)
     local ac = f:CreateTexture(nil, "ARTWORK")
     ac:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
     ac:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
@@ -2335,13 +2339,13 @@ local function BuildFrame()
     t:SetPoint(def[1], f, def[1], 0, 0)
     t:SetPoint(def[2], f, def[2], 0, 0)
     if def[3] == "h" then t:SetHeight(1) else t:SetWidth(1) end
-    Solid(t, 0.32, 0.35, 0.40, 1)
+    Solid(t, 0, 0, 0, 1)
     f.edges[#f.edges + 1] = t
   end
   f.bg = f:CreateTexture(nil, "BORDER")
   f.bg:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
   f.bg:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
-  Solid(f.bg, 0.09, 0.10, 0.13, 1)
+  Solid(f.bg, 0.035, 0.055, 0.065, 1)
   f.accent = f:CreateTexture(nil, "ARTWORK")
   f.accent:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
   f.accent:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
@@ -2395,7 +2399,7 @@ local function BuildFrame()
 
   f.line = f:CreateTexture(nil, "ARTWORK")
   f.line:SetHeight(1)
-  Solid(f.line, 0.24, 0.27, 0.32, 1)
+  Solid(f.line, 0.20, 0.25, 0.28, 1)
 
   -- 현재 단계 카드
   f.icon = f:CreateTexture(nil, "ARTWORK")
@@ -2427,9 +2431,9 @@ local function BuildFrame()
     row:SetHeight(34)
     row.hl = row:CreateTexture(nil, "BACKGROUND")
     row.hl:SetAllPoints()
-    Solid(row.hl, 0.30, 0.62, 0.78, 0)
-    row:SetScript("OnEnter", function() Solid(row.hl, 0.30, 0.62, 0.78, 0.22) end)
-    row:SetScript("OnLeave", function() Solid(row.hl, 0.30, 0.62, 0.78, 0) end)
+    Solid(row.hl, 0.063, 0.816, 0.627, 0)
+    row:SetScript("OnEnter", function() Solid(row.hl, 0.063, 0.816, 0.627, 0.22) end)
+    row:SetScript("OnLeave", function() Solid(row.hl, 0.063, 0.816, 0.627, 0) end)
     row.text = Dark(row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 12)
     row.text:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -2)
     row.text:SetWidth(CW - 8)
@@ -2518,11 +2522,11 @@ local function BuildFrame()
   end
   do
     local gb = f.bGear
-    Solid(gb.bg, 0.80, 0.50, 0.08, 1)
+    Solid(gb.bg, 0.045, 0.32, 0.26, 1)
     gb.label:SetTextColor(1, 1, 1)
     SetF(gb.label, 12, true)
-    gb:SetScript("OnEnter", function() Solid(gb.bg, 0.95, 0.62, 0.15, 1) end)
-    gb:SetScript("OnLeave", function() Solid(gb.bg, 0.80, 0.50, 0.08, 1) end)
+    gb:SetScript("OnEnter", function() Solid(gb.bg, 0.06, 0.40, 0.32, 1) end)
+    gb:SetScript("OnLeave", function() Solid(gb.bg, 0.045, 0.32, 0.26, 1) end)
   end
 
   f.tlabel = Muted(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
@@ -2538,7 +2542,7 @@ local function BuildFrame()
     tr:SetPoint("LEFT", sl, "LEFT", 0, 0)
     tr:SetPoint("RIGHT", sl, "RIGHT", 0, 0)
     tr:SetHeight(4)
-    Solid(tr, 0.28, 0.31, 0.37, 1)
+    Solid(tr, 0.20, 0.25, 0.28, 1)
     local th = sl:CreateTexture(nil, "OVERLAY")
     th:SetWidth(8)
     th:SetHeight(16)

@@ -6,8 +6,11 @@ local PREFIX = "KQGP"
 local FONT_R = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Regular.ttf"
 local FONT_B = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Bold.ttf"
 local C_TEXT = { 0.93, 0.94, 0.96 }
-local C_MUTED = { 0.64, 0.68, 0.74 }
-local C_ACCENT = { 0.30, 0.62, 0.78 }
+local C_MUTED = { 0.55, 0.60, 0.63 }
+-- 상수 스타일 색 (Sangsu'sStyle UI 애드온과 같은 색)
+local C_ACCENT = { 0.063, 0.816, 0.627 }
+local C_SEL = { 0.045, 0.32, 0.26 }
+local BG_ALPHA = 0.92
 local C_GREEN = { 0.18, 0.64, 0.42 }
 local C_RED = { 0.90, 0.25, 0.22 }
 local ROWS = 5
@@ -487,16 +490,16 @@ local function Refresh()
   do
     local qon = KQG.DB().partyQuest and true or false
     frame.qbtn.label:SetText(qon and "파티 퀘스트 중지" or "파티 퀘스트 시작")
-    local qb = qon and { 0.80, 0.50, 0.08 } or (allPm and { 0.18, 0.64, 0.42 } or { 0.20, 0.22, 0.27 })
+    local qb = qon and { 0.045, 0.32, 0.26 } or (allPm and { 0.18, 0.64, 0.42 } or { 0.055, 0.085, 0.10 })
     frame.qbtn.base = qb
-    frame.qbtn.hover = qon and { 0.95, 0.62, 0.15 } or (allPm and { 0.24, 0.74, 0.50 } or { 0.29, 0.32, 0.38 })
+    frame.qbtn.hover = qon and { 0.06, 0.40, 0.32 } or (allPm and { 0.24, 0.74, 0.50 } or { 0.08, 0.12, 0.14 })
     Solid(frame.qbtn.bg, qb[1], qb[2], qb[3], 1)
     frame.qbtn.label:SetTextColor(allPm and 1 or 0.55, allPm and 1 or 0.58, allPm and 1 or 0.62)
   end
   frame.btn.label:SetText(on and "파티 모드 끄기" or "파티 모드 시작")
-  local base = on and { 0.80, 0.50, 0.08 } or (allOk and C_ACCENT or { 0.20, 0.22, 0.27 })
+  local base = on and { 0.045, 0.32, 0.26 } or (allOk and C_SEL or { 0.055, 0.085, 0.10 })
   frame.btn.base = base
-  frame.btn.hover = on and { 0.95, 0.62, 0.15 } or (allOk and { 0.38, 0.70, 0.86 } or { 0.29, 0.32, 0.38 })
+  frame.btn.hover = on and { 0.06, 0.40, 0.32 } or (allOk and { 0.06, 0.40, 0.32 } or { 0.08, 0.12, 0.14 })
   Solid(frame.btn.bg, base[1], base[2], base[3], 1)
   frame.btn.enabled = allOk or on
   local same, why = AllSameMap()
@@ -720,7 +723,7 @@ Banner = function(l1, l2, secs)
     b:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
-    Solid(b.bg, 0.05, 0.06, 0.08, 0.80)
+    Solid(b.bg, 0.02, 0.035, 0.042, 0.80)
     b.t1 = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     b.t1:SetPoint("TOP", b, "TOP", 0, -16)
     SetF(b.t1, 32, true)
@@ -782,7 +785,7 @@ local function Build()
   f:Hide()
   local bg = f:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints()
-  Solid(bg, 0.02, 0.02, 0.03, 1)
+  Solid(bg, 0.035, 0.055, 0.065, 1)
   local ac = f:CreateTexture(nil, "ARTWORK")
   ac:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
   ac:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
@@ -794,7 +797,7 @@ local function Build()
     t:SetPoint(def[1], f, def[1], 0, 0)
     t:SetPoint(def[2], f, def[2], 0, 0)
     if def[3] == "h" then t:SetHeight(1) else t:SetWidth(1) end
-    Solid(t, 0.32, 0.35, 0.40, 1)
+    Solid(t, 0, 0, 0, 1)
   end
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -12)
@@ -835,8 +838,8 @@ local function Build()
   qbtn.label = qbtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   qbtn.label:SetPoint("CENTER", qbtn, "CENTER", 0, 0)
   SetF(qbtn.label, 13, true)
-  qbtn.base = { 0.20, 0.22, 0.27 }
-  qbtn.hover = { 0.29, 0.32, 0.38 }
+  qbtn.base = { 0.055, 0.085, 0.10 }
+  qbtn.hover = { 0.08, 0.12, 0.14 }
   qbtn:SetScript("OnEnter", function() Solid(qbtn.bg, qbtn.hover[1], qbtn.hover[2], qbtn.hover[3], 1) end)
   qbtn:SetScript("OnLeave", function() Solid(qbtn.bg, qbtn.base[1], qbtn.base[2], qbtn.base[3], 1) end)
   qbtn:SetScript("OnClick", function()
@@ -874,8 +877,8 @@ local function Build()
   btn.label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   btn.label:SetPoint("CENTER", btn, "CENTER", 0, 0)
   SetF(btn.label, 13, true)
-  btn.base = { 0.20, 0.22, 0.27 }
-  btn.hover = { 0.29, 0.32, 0.38 }
+  btn.base = { 0.055, 0.085, 0.10 }
+  btn.hover = { 0.08, 0.12, 0.14 }
   btn:SetScript("OnEnter", function() Solid(btn.bg, btn.hover[1], btn.hover[2], btn.hover[3], 1) end)
   btn:SetScript("OnLeave", function() Solid(btn.bg, btn.base[1], btn.base[2], btn.base[3], 1) end)
   btn:SetScript("OnClick", function()
@@ -919,12 +922,12 @@ local function Build()
       if field == "partyShare" and frame and frame.sameOk == false then
         b.label:SetText(label .. " 비활성 (다른 지역)")
         b.label:SetTextColor(0.55, 0.57, 0.62)
-        Solid(b.bg, 0.12, 0.13, 0.16, 1)
+        Solid(b.bg, 0.03, 0.045, 0.052, 1)
         return
       end
       b.label:SetTextColor(1, 1, 1)
       b.label:SetText(label .. " " .. (on and "켜짐" or "꺼짐"))
-      if on then Solid(b.bg, 0.80, 0.50, 0.08, 1) else Solid(b.bg, 0.20, 0.22, 0.27, 1) end
+      if on then Solid(b.bg, 0.045, 0.32, 0.26, 1) else Solid(b.bg, 0.055, 0.085, 0.10, 1) end
     end
     b:SetScript("OnClick", function()
       if field == "partyShare" and frame and frame.sameOk == false then
@@ -966,7 +969,7 @@ local function Build()
     row:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -256 - (i - 1) * 24)
     row.bg = row:CreateTexture(nil, "BACKGROUND")
     row.bg:SetAllPoints()
-    Solid(row.bg, 0.14, 0.16, 0.20, 1)
+    Solid(row.bg, 0.02, 0.035, 0.042, 1)
     local function Col(k, idx, just)
       local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
       fs:SetPoint("LEFT", row, "LEFT", xs[idx] + 4, 0)

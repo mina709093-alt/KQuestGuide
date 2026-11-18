@@ -659,12 +659,11 @@ local function Rounded(b, r, g, bl, a)
   if b.SetBackdrop then
     b:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
-      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      tile = false, edgeSize = 10,
-      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+      edgeFile = "Interface\\Buttons\\WHITE8X8",
+      tile = false, edgeSize = 1,
     })
     b:SetBackdropColor(r, g, bl, a or 1)
-    b:SetBackdropBorderColor(0.85, 0.85, 0.9, 1)
+    b:SetBackdropBorderColor(0.20, 0.25, 0.28, 1)
   elseif b.bgtex then
     b.bgtex:SetTexture("Interface\\Buttons\\WHITE8X8")
     b.bgtex:SetVertexColor(r, g, bl, a or 1)
@@ -730,11 +729,12 @@ local function BuildGear()
   f:SetPoint("LEFT", UIParent, "LEFT", 60, 0)
   if f.SetBackdrop then
     f:SetBackdrop({
-      bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-      edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-      tile = true, tileSize = 32, edgeSize = 24,
-      insets = { left = 6, right = 6, top = 6, bottom = 6 },
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Buttons\\WHITE8X8",
+      tile = false, edgeSize = 1,
     })
+    f:SetBackdropColor(0.035, 0.055, 0.065, 0.92)
+    f:SetBackdropBorderColor(0, 0, 0, 1)
   end
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -16)
@@ -853,8 +853,8 @@ local function BuildGear()
     sb.thumb = sb:CreateTexture(nil, "OVERLAY")
     sb.thumb:SetWidth(12)
     sb.thumb:SetHeight(40)
-    if sb.thumb.SetColorTexture then sb.thumb:SetColorTexture(0.80, 0.50, 0.08, 1)
-    else sb.thumb:SetTexture("Interface\\Buttons\\WHITE8X8") sb.thumb:SetVertexColor(0.80, 0.50, 0.08, 1) end
+    if sb.thumb.SetColorTexture then sb.thumb:SetColorTexture(0.045, 0.32, 0.26, 1)
+    else sb.thumb:SetTexture("Interface\\Buttons\\WHITE8X8") sb.thumb:SetVertexColor(0.045, 0.32, 0.26, 1) end
     sb:SetThumbTexture(sb.thumb)
     sb:SetMinMaxValues(0, 1)
     sb:SetValueStep(1)
@@ -876,7 +876,7 @@ local function BuildGear()
   local x = RoundButton(f, "X", 22, 22, { 0.35, 0.12, 0.12 }, { 0.70, 0.18, 0.18 }, function() f:Hide() end)
   x:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -10)
   -- 역할 선택 콤보
-  local rb = RoundButton(f, "", 250, 22, { 0.14, 0.16, 0.20 }, { 0.24, 0.27, 0.33 }, function()
+  local rb = RoundButton(f, "", 250, 22, { 0.02, 0.035, 0.042 }, { 0.08, 0.12, 0.14 }, function()
     if f.menu:IsShown() then f.menu:Hide() else f.menu:Show() end
   end)
   rb:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -38)
@@ -891,9 +891,10 @@ local function BuildGear()
   menu:SetHeight(#opts * 22 + 8)
   menu:SetPoint("TOPLEFT", rb, "BOTTOMLEFT", 0, 0)
   if menu.SetBackdrop then
-    menu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      tile = false, edgeSize = 10, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-    menu:SetBackdropColor(0.06, 0.07, 0.09, 1)
+    menu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
+      tile = false, edgeSize = 1 })
+    menu:SetBackdropBorderColor(0, 0, 0, 1)
+    menu:SetBackdropColor(0.02, 0.035, 0.042, 1)
   end
   for i, o in ipairs(opts) do
     local ob = CreateFrame("Button", nil, menu)

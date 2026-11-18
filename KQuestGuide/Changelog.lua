@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.24.1",
+    "창 색상을 상수팩 공통 스타일(상수 스타일)로 바꿨습니다. 어두운 청록빛 배경, 1px 검은 테두리, 강조색 #10D0A0. 투명도 0%가 상수 스타일 기본 진하기입니다.",
+  },
   { ver = "0.24.0",
     "11월 17일 취합: 게임에서 모은 저습지 신규 퀘스트 5개(고된 시기, 칼날아귀 바느질, 용아귀에게 죽음을, 버릇은 못 버린다, 한때의 영토)를 기본 데이터로 넣었습니다. 받는 곳/내는 곳/목표 위치를 새로 설치한 사람도 바로 안내받습니다.",
   },
