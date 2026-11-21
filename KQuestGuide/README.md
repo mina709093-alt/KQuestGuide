@@ -24,6 +24,8 @@
 | 게임에서 모은 퀘스트 위치 | 사용자들이 게임 안에서 직접 기록해 보내 준 자료(`/kqg 수집`)를 취합 | 보내 준 분들의 동의 | `FoundData.lua` |
 | 퀘스트 정리 판정 (실시간) | 설치된 Questie 애드온의 데이터베이스를 읽기만 함. `KQuestGuide` 데이터에 없는 퀘스트일 때만 사용 | GPLv3 | `Cleanup.lua` |
 | 던전 목록, 입장·권장 레벨, 입구 위치, 던전별 퀘스트 번호·레벨·진영·선행 번호, (한글이 없을 때만) 영어 퀘스트 제목·NPC 이름 | Dungeon Codex (AeonDungeonJournal) 1.4 (CurseForge 프로젝트 1715265)의 데이터에서 사실 정보만 변환. 전리품·보스·공략·지도 그림은 가져오지 않음 | GPL-2.0 | `DungeonData.lua` |
+| 책 반납 퀘스트의 책 위치(지역, 책 제목, 좌표, 비고) | 인벤 와우 포에버 게시판 [「책 반납을 위한 수집 위치」](https://www.inven.co.kr/board/wow/6567/1684) (2026-09-25)의 표를 옮겨 적음. 그 글의 원 출처는 [Wowhead 시즌 오브 디스커버리 마법사 주문력 룬 가이드](https://www.wowhead.com/classic/guide/season-of-discovery/classes/mage/spell-power-rune)이고, 책 제목은 제미나이 번역. 좌표는 시즌 오브 디스커버리 기준이라 게임에서 확인하며 고침 | 공개 글의 사실 정보(좌표), 출처 표기 | `BookData.lua` |
+| 책 반납 퀘스트의 반납 장소, 줍는 요령 메모 | 유튜브 영상 [「[와우 포에버] 책 반납 퀘스트 목걸이 반지 얻기」](https://youtu.be/cKsdx2ydH6Y) (시후XIHUGAME, 2026-09-28)의 챕터 제목·자막·고정 댓글에서 사실 정보만 옮김 | 공개 영상의 사실 정보, 출처 표기 | `BookData.lua` |
 | 길 안내 (선택) | 설치된 Shortest Path Forever 애드온의 공개 API를 읽기만 함 | 해당 애드온 조건 | `KQuestGuide.lua`, `Route.lua` |
 | 퀘스트 메뉴 연동 (선택) | 설치된 DaylightUI 애드온의 공개 API로 메뉴 항목만 추가 | 해당 애드온 조건 | `DaylightBridge.lua` |
 | 글꼴 | 마루부리(MaruBuri), 네이버 배포 | SIL OFL 1.1로 알려져 있음 | `fonts/` |
