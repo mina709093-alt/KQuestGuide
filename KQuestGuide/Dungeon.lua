@@ -21,6 +21,15 @@ local DUNGEONS = {
   { 2100, "마라우돈" }, { 1477, "아탈학카르 신전" }, { 1584, "검은바위 나락" }, { 1583, "검은바위 첨탑" },
   { 2557, "혈투의 전장" }, { 2017, "스트라솔름" }, { 2057, "스칼로맨스" },
 }
+-- 퀘스트 데이터가 던전 번호 대신 "던전 입구 지역" 번호를 쓰는 던전 (데이터 번호 -> 위 목록 번호)
+-- 2026-11-21 확인: 아래 번호로는 KQG_DATA에 각각 6, 27, 29, 10, 10개 퀘스트가 있고, 위 목록 번호로는 0개.
+local ZONE_ALIAS = {
+  [1717] = 491,  -- 가시덩굴 우리
+  [133] = 721,   -- 놈리건
+  [1517] = 1337, -- 울다만
+  [978] = 1176,  -- 줄파락
+  [1417] = 1477, -- 아탈학카르 신전
+}
 local PREP_RANGE = 4
 
 local function AreaName(area, fallback)
@@ -71,7 +80,8 @@ local function BuildIndex()
   index = {}
   for _, d in ipairs(DUNGEONS) do index[d[1]] = {} end
   for id, r in pairs(Q) do
-    local list = index[r[F.ZONE]]
+    local z = r[F.ZONE]
+    local list = index[ZONE_ALIAS[z] or z]
     if list then list[#list + 1] = id end
   end
 end
@@ -112,98 +122,604 @@ local function Evaluate(area)
 end
 
 ---------------------------------------------------------------------------
--- 창
+-- 던전 퀘스트 창 (0.26.0)
+--   왼쪽: 던전 목록 (진영 문장, 이름, 입장 레벨, 내 퀘스트 완료/전체)
+--   오른쪽: 고른 던전의 퀘스트
+--     · 던전 안에서 받는 퀘스트: [던전 내부] 퀘스트명
+--     · 밖에서 받는 퀘스트: NPC명 - 퀘스트명 - 지역 (좌표)
+--     · 선행이 있는 퀘스트: [+] [연계] 최종 퀘스트명 - 위치 → 펼치면 첫 단계부터 N_1, N_2 …
+--     · 완료한 퀘스트는 가로줄과 "완료" 표시
+--   좌표가 있는 줄을 누르면 그 NPC로 길 안내 (장비 추천과 같은 방식, 수락하면 자동 해제)
+-- 던전 목록·퀘스트 번호·레벨·진영은 DungeonData.lua(Dungeon Codex에서 변환)를 씁니다.
+-- 퀘스트 이름·NPC·좌표·연계는 KQuestGuide 기본 데이터(Questie 기반)를 먼저 쓰고,
+-- 거기 없는 퀘스트만 게임이 알려 주는 한글 제목, 그것도 없으면 Dungeon Codex의 영어 이름을 씁니다.
 ---------------------------------------------------------------------------
 local FONT = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Regular.ttf"
 local FONT_B = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Bold.ttf"
-local win, text
 
-local function Build()
-  win = CreateFrame("Frame", "KQGDungeonFrame", UIParent, "BackdropTemplate")
-  win:SetSize(460, 420)
-  win:SetPoint("CENTER", 220, 0)
-  win:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-  win:SetBackdropColor(0.035, 0.055, 0.065, 0.96)
-  win:SetBackdropBorderColor(0, 0, 0, 1)
-  win:SetMovable(true); win:EnableMouse(true); win:RegisterForDrag("LeftButton")
-  win:SetScript("OnDragStart", win.StartMoving); win:SetScript("OnDragStop", win.StopMovingOrSizing)
-  win:SetFrameStrata("DIALOG"); win:SetClampedToScreen(true)
-  tinsert(UISpecialFrames, "KQGDungeonFrame")
-  local title = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  if not pcall(title.SetFont, title, FONT_B, 15, "") then title:SetFontObject(GameFontHighlightLarge) end
-  title:SetPoint("TOPLEFT", 14, -12)
-  title:SetText("던전 안내")
-  local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
-  close:SetPoint("TOPRIGHT", 2, 2)
-  local sf = CreateFrame("ScrollFrame", nil, win, "UIPanelScrollFrameTemplate")
-  sf:SetPoint("TOPLEFT", 12, -40); sf:SetPoint("BOTTOMRIGHT", -30, 12)
-  local child = CreateFrame("Frame", nil, sf)
-  child:SetSize(410, 10)
-  sf:SetScrollChild(child)
-  text = child:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  if not pcall(text.SetFont, text, FONT, 12, "") then text:SetFontObject(GameFontHighlight) end
-  text:SetPoint("TOPLEFT"); text:SetWidth(410); text:SetJustifyH("LEFT"); text:SetSpacing(3)
-  win.child = child
+local DD = KQG.DungeonData or {}
+local SRC_KQG = "KQuestGuide 기본 데이터 (Questie/QuestieDB 기반)"
+local SRC_CODEX = "Dungeon Codex (영문 데이터)"
+local SRC_LINE = "던전·퀘스트 목록·레벨: Dungeon Codex · 퀘스트 이름·위치: KQuestGuide 기본 데이터 (Questie 기반)"
+
+local C_TEXT = { 0.93, 0.94, 0.96 }
+local C_MUTED = { 0.55, 0.60, 0.63 }
+local C_ACCENT = { 0.063, 0.816, 0.627 }
+local C_SEL = { 0.045, 0.32, 0.26 }
+local C_BG = { 0.035, 0.055, 0.065 }
+local C_DONE = { 0.18, 0.64, 0.42 }
+local C_GOLD = { 1.0, 0.82, 0.0 }
+local ICON_A = "Interface\\FriendsFrame\\PlusManz-Alliance"
+local ICON_H = "Interface\\FriendsFrame\\PlusManz-Horde"
+
+local function SetF(fs, size, bold)
+  if not pcall(fs.SetFont, fs, bold and FONT_B or FONT, size or 12, "") then fs:SetFontObject(GameFontHighlight) end
+  return fs
+end
+local function Solid(tex, r, g, b, a)
+  if tex.SetColorTexture then tex:SetColorTexture(r, g, b, a or 1)
+  else tex:SetTexture("Interface\\Buttons\\WHITE8X8") tex:SetVertexColor(r, g, b, a or 1) end
+end
+local function Hex(c) return string.format("|cff%02x%02x%02x", math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255)) end
+local function Shown(obj, on) if on then obj:Show() else obj:Hide() end end
+local function IsDungeonZoneAny(a) return KQG.IsDungeonZone and KQG.IsDungeonZone(a) or false end
+
+-- Dungeon Codex 퀘스트를 번호로 찾기 (선행 퀘스트 이름용)
+local codexQ = {}
+for _, d in ipairs(DD) do
+  for _, cq in ipairs(d.q or {}) do codexQ[cq.id] = codexQ[cq.id] or cq end
+end
+local areaName = {}
+for _, d in ipairs(DUNGEONS) do areaName[d[1]] = d[2] end
+
+local function DName(d)
+  local name
+  if d.inst and not d.up and GetRealZoneText then
+    local ok, n = pcall(GetRealZoneText, d.inst)
+    if ok and type(n) == "string" and n ~= "" then name = n end
+  end
+  if not name and d.area then name = AreaName(d.area, areaName[d.area]) end
+  name = name or d.name or d.key
+  if d.wing then name = name .. " - " .. d.wing end
+  return name
 end
 
-local STATE_TXT = {
-  complete = "|cff2fa26a[완료 - 제출만 남음]|r",
-  accepted = "|cff4db8e0[받음]|r",
-  open = "|cffe6c229[미리 받기]|r",
-  locked = "|cffa0a0a0[선행 필요]|r",
+local function MyFaction() return KQG.Faction() == "H" and "h" or "a" end
+
+-- 던전 퀘스트를 받을 수 있는 진영: "A", "H", "AH" 또는 nil (Dungeon Codex의 진영 칸)
+local function DungeonFaction(d)
+  local a, h = false, false
+  for _, cq in ipairs(d.q or {}) do
+    if cq.side ~= "h" then a = true end
+    if cq.side ~= "a" then h = true end
+  end
+  if a and h then return "AH" elseif a then return "A" elseif h then return "H" end
+  return nil
+end
+
+-- 내 종족/직업/진영 조건만 보는 검사 (레벨 제외)
+local function MineOK(id)
+  local r = Q[id]
+  if not r then return false end
+  if not KQG.Bit(r[F.RACES], KQG.RaceBit()) then return false end
+  if not KQG.Bit(r[F.CLASSES], KQG.ClassBit()) then return false end
+  local s = r[F.START]
+  local fr = s and s[7]
+  if fr and fr ~= "" and not string.find(fr, KQG.Faction(), 1, true) then return false end
+  return true
+end
+
+-- 내가 받을 수 있는 던전 퀘스트인지 (진영 → KQuestGuide 데이터가 있으면 종족·직업·진영)
+local function Mine(cq)
+  if cq.side and cq.side ~= MyFaction() then return false end
+  if Q[cq.id] then return MineOK(cq.id) end
+  return true
+end
+
+-- 선행 퀘스트 하나 고르기: 모두 필요(PREG)는 첫 번째, 하나만 필요(PRES)는 완료한 것 → 내가 받을 수 있는 것
+local function PickPrereq(r)
+  if r[F.PREG] then
+    for _, p in ipairs(r[F.PREG]) do if Q[p] then return p end end
+  end
+  if r[F.PRES] then
+    for _, p in ipairs(r[F.PRES]) do if Q[p] and KQG.IsDone(p) then return p end end
+    for _, p in ipairs(r[F.PRES]) do if Q[p] and MineOK(p) then return p end end
+  end
+  return nil
+end
+
+-- 첫 단계부터 이 퀘스트까지의 연계 (최대 15단계)
+local function ChainTo(id)
+  local list, seen, cur = { id }, { [id] = true }, id
+  for _ = 1, 15 do
+    local p = Q[cur] and PickPrereq(Q[cur])
+    if not p then
+      local cq = not Q[cur] and codexQ[cur]
+      p = cq and cq.pre and cq.pre[1]
+    end
+    if not p or seen[p] then break end
+    seen[p] = true
+    table.insert(list, 1, p)
+    cur = p
+  end
+  return list
+end
+
+local function QState(id)
+  if KQG.IsDone(id) then return "done" end
+  if KQG.InLog(id) then return KQG.LogComplete(id) and "complete" or "accepted" end
+  return "none"
+end
+local STATE_BADGE = {
+  done = Hex(C_DONE) .. "완료|r",
+  complete = Hex(C_GOLD) .. "제출 가능|r",
+  accepted = "|cff4db8e0받음|r",
 }
 
-local function QuestLine(q)
-  local r = q.r
-  local line = ("  %s %s |cff8fa0b0(%d레벨)|r"):format(STATE_TXT[q.state] or "", r[F.NAME] or ("#" .. q.id), r[F.LVL] or 0)
-  local s = r[F.START]
-  if q.state == "open" and s then
-    if s[1] == "n" then
-      line = line .. ("\n      받는 곳: %s · %s%s"):format(s[6] or "?", ZoneName(s[3]),
-        (s[4] and s[4] >= 0) and (" (%.0f, %.0f)"):format(s[4], s[5] or 0) or "")
-    elseif s[1] == "i" then
-      line = line .. ("\n      시작: 아이템 「%s」"):format(s[6] or "?")
-    elseif s[1] == "o" then
-      line = line .. ("\n      시작: %s"):format(s[6] or "?")
-    end
-  elseif q.state == "locked" and q.pre then
-    local pr = Q[q.pre]
-    line = line .. ("\n      먼저 할 퀘스트: %s"):format(pr and pr[F.NAME] or ("#" .. q.pre))
-  end
-  return line
+local function Coord(s)
+  if s and s[4] and s[4] >= 0 then return string.format("(%.0f, %.0f)", s[4], s[5] or 0) end
+  return ""
 end
 
-local function Render()
-  local level = UnitLevel("player") or 1
-  local out = {}
-  local function add(t) out[#out + 1] = t end
-  add(("|cff8fa0b0내 레벨 %d · 권장 레벨 = 남은 던전 퀘스트 중 가장 높은 퀘스트 레벨 - 1|r"):format(level))
-  add("")
-  local shown = 0
-  for _, d in ipairs(DUNGEONS) do
-    local e = Evaluate(d[1])
-    if e and e.recommend >= level - 3 and e.recommend <= level + 8 then
-      shown = shown + 1
-      local tag
-      if level >= e.recommend then tag = "|cff2fa26a지금 가기 좋음|r"
-      elseif level >= e.recommend - PREP_RANGE then tag = ("|cffe6c229%d레벨부터 권장 · 지금은 퀘스트 미리 받기|r"):format(e.recommend)
-      else tag = ("|cffa0a0a0%d레벨부터 권장|r"):format(e.recommend) end
-      add(("|cffffd200%s|r  %s"):format(AreaName(d[1], d[2]), tag))
-      add(("  |cff8fa0b0퀘스트 %d개 중 %d개 받음 · 퀘스트 레벨 %d~%d|r"):format(#e.quests, e.have, e.minLvl, e.maxLvl))
-      for _, q in ipairs(e.quests) do add(QuestLine(q)) end
-      add("")
+-- 게임이 알려 주는 퀘스트 제목 (한 번도 보지 않은 퀘스트는 없을 수 있음)
+local function GameTitle(id)
+  if C_QuestLog and C_QuestLog.GetTitleForQuestID then
+    local ok, t = pcall(C_QuestLog.GetTitleForQuestID, id)
+    if ok and type(t) == "string" and t ~= "" then return t end
+  end
+  return nil
+end
+
+local function QTitle(id)
+  local r = Q[id]
+  if r and r[F.NAME] then return r[F.NAME] end
+  local cq = codexQ[id]
+  return GameTitle(id) or (cq and cq.t) or ("퀘스트 #" .. id)
+end
+
+local function ItemName(item)
+  local fn = (C_Item and C_Item.GetItemNameByID) or GetItemInfo
+  if fn then
+    local ok, n = pcall(fn, item)
+    if ok and type(n) == "string" then return n end
+  end
+  return "시작 아이템"
+end
+
+-- 한 줄 글: 받는 곳 형식
+local function StartText(id)
+  local r = Q[id]
+  if r then
+    local name = r[F.NAME] or ("#" .. id)
+    local s = r[F.START]
+    if not s then return name .. " - 받는 곳 정보 없음" end
+    if s[3] and IsDungeonZoneAny(s[3]) then return "[던전 내부] " .. name end
+    if s[1] == "i" then return "아이템「" .. (s[6] or "?") .. "」 - " .. name end
+    local where = s[3] and ZoneName(s[3]) or ""
+    return (s[6] or "?") .. " - " .. name .. " - " .. where .. " " .. Coord(s)
+  end
+  local cq = codexQ[id]
+  local name = QTitle(id)
+  if not cq then return name end
+  if cq.item then return "아이템「" .. ItemName(cq.item) .. "」 - " .. name end
+  if not cq.zm then return "[던전 내부] " .. name end
+  return (cq.g or "?") .. " - " .. name .. " - " .. (KQG.MapName and KQG.MapName(cq.zm) or "")
+end
+
+-- 연계 머리줄의 위치
+local function WhereText(id)
+  local r = Q[id]
+  if r then
+    local s = r[F.START]
+    if not s then return "" end
+    if s[3] and IsDungeonZoneAny(s[3]) then return "던전 내부" end
+    return (s[3] and ZoneName(s[3]) or "") .. " " .. Coord(s)
+  end
+  local cq = codexQ[id]
+  if not cq then return "" end
+  if cq.item then return "아이템으로 시작" end
+  if not cq.zm then return "던전 내부" end
+  return KQG.MapName and KQG.MapName(cq.zm) or ""
+end
+
+-- 고른 던전의 줄 목록 만들기
+local expanded = {}
+local function BuildRows(d)
+  local mine = {}
+  for _, cq in ipairs(d.q or {}) do
+    if Mine(cq) then mine[#mine + 1] = cq.id end
+  end
+  table.sort(mine, function(a, b)
+    local la = (Q[a] and Q[a][F.LVL]) or (codexQ[a] and codexQ[a].lv) or 0
+    local lb = (Q[b] and Q[b][F.LVL]) or (codexQ[b] and codexQ[b].lv) or 0
+    if la ~= lb then return la < lb end
+    return a < b
+  end)
+  -- 다른 던전 퀘스트의 연계 단계로 이미 들어가는 퀘스트는 따로 보여 주지 않음
+  local chains, inner = {}, {}
+  for _, id in ipairs(mine) do
+    local ch = ChainTo(id)
+    chains[id] = ch
+    for i = 1, #ch - 1 do inner[ch[i]] = true end
+  end
+  local rows, n, done, total = {}, 0, 0, 0
+  for _, id in ipairs(mine) do
+    if not inner[id] then
+      n = n + 1
+      total = total + 1
+      local st = QState(id)
+      if st == "done" then done = done + 1 end
+      local ch = chains[id]
+      if #ch == 1 then
+        rows[#rows + 1] = { num = n .. ".", id = id, text = StartText(id), state = st }
+      else
+        local cnt = 0
+        for _, c in ipairs(ch) do if KQG.IsDone(c) then cnt = cnt + 1 end end
+        rows[#rows + 1] = { num = n .. ".", id = id, chain = ch, header = true,
+          text = "[연계] " .. QTitle(id) .. " - " .. WhereText(id),
+          state = st, progress = st ~= "done" and string.format("%d/%d", cnt, #ch) or nil }
+        if expanded[d.key .. ":" .. id] then
+          for i, c in ipairs(ch) do
+            rows[#rows + 1] = { num = n .. "_" .. i, id = c, text = StartText(c), state = QState(c), child = true }
+          end
+        end
+      end
     end
   end
-  if shown == 0 then add("지금 레벨 근처에 안내할 던전 퀘스트가 없습니다.") end
-  text:SetText(table.concat(out, "\n"))
-  win.child:SetHeight(text:GetStringHeight() + 10)
+  return rows, done, total
+end
+
+local win
+local list, offset, offL, sel = {}, 0, 0, nil
+local LROWS, RROWS, ROW_H = 19, 16, 22
+local W, LEFT_W = 740, 256
+
+local function SelD()
+  for _, d in ipairs(DD) do if d.key == sel then return d end end
+  return DD[1]
+end
+
+local function SetForcedTo(id)
+  local r = Q[id]
+  local s = r and r[F.START]
+  if not s or s[1] == "i" or not s[4] or s[4] < 0 then return false end
+  local map = KQG.UiMapOf and KQG.UiMapOf(s[3])
+  if not map or not KQG.SetForced then return false end
+  KQG.SetForced({ kind = "accept", key = "dgq" .. id, loc = s, map = map, quests = { id }, label = "[던전 퀘스트] " .. (r[F.NAME] or "") })
+  Print("안내 시작: " .. (s[6] or "?") .. " - " .. (r[F.NAME] or "") .. " " .. Coord(s) .. ", " .. ZoneName(s[3]))
+  return true
+end
+
+local RenderRight
+
+local function RenderLeft()
+  local level = UnitLevel("player") or 1
+  local maxOff = math.max(0, #DD - LROWS)
+  if offL > maxOff then offL = maxOff end
+  if offL < 0 then offL = 0 end
+  for i = 1, LROWS do
+    local row = win.left[i]
+    local d = DD[i + offL]
+    row.d = d
+    if d then
+      local fac = DungeonFaction(d)
+      Shown(row.iconA, fac == "A" or fac == "AH")
+      Shown(row.iconH, fac == "H" or fac == "AH")
+      row.iconA:ClearAllPoints()
+      row.iconH:ClearAllPoints()
+      if fac == "AH" then
+        row.iconA:SetPoint("LEFT", 6, 0) row.iconH:SetPoint("LEFT", 22, 0)
+      else
+        row.iconA:SetPoint("LEFT", 14, 0) row.iconH:SetPoint("LEFT", 14, 0)
+      end
+      row.name:SetText(DName(d) .. (d.up and (" " .. Hex(C_MUTED) .. "(개방 예정)|r") or ""))
+      row.lv:SetText(d.lv and d.lv[1] > 0 and tostring(d.lv[1]) or "")
+      local _, dn, tt = BuildRows(d)
+      row.cnt:SetText(tt > 0 and (dn .. "/" .. tt) or "-")
+      local near = d.lv and level >= d.lv[1] and level <= d.lv[3]
+      if near then row.name:SetTextColor(C_TEXT[1], C_TEXT[2], C_TEXT[3])
+      else row.name:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3]) end
+      if d.key == sel then Solid(row.bg, C_SEL[1], C_SEL[2], C_SEL[3], 1) else Solid(row.bg, 0, 0, 0, 0) end
+      row:Show()
+    else
+      row:Hide()
+    end
+  end
+end
+
+RenderRight = function()
+  local d = SelD()
+  if not d then return end
+  local level = UnitLevel("player") or 1
+  local fac = DungeonFaction(d)
+  win.title2:SetText(DName(d))
+  Shown(win.facA, fac == "A" or fac == "AH")
+  Shown(win.facH, fac == "H" or fac == "AH")
+  win.facH:ClearAllPoints()
+  if fac == "AH" then win.facH:SetPoint("LEFT", win.facA, "RIGHT", 2, 0) else win.facH:SetPoint("LEFT", win.title2, "RIGHT", 8, 0) end
+  local facTxt = fac == "AH" and "공통" or fac == "A" and "얼라이언스" or fac == "H" and "호드" or "정보 없음"
+  local info = {}
+  if d.lv and d.lv[1] > 0 then info[#info + 1] = string.format("입장 %d · 권장 %d~%d", d.lv[1], d.lv[2], d.lv[3]) end
+  info[#info + 1] = "진영: " .. facTxt
+  if d.up then info[#info + 1] = "개방 예정"
+  elseif d.status == "beta" then info[#info + 1] = "베타 데이터" end
+  local e = d.area and not d.wing and Evaluate(d.area)
+  if e then
+    if level >= e.recommend then info[#info + 1] = Hex(C_DONE) .. "퀘스트 몰아서 하기 좋음|r"
+    elseif level >= e.recommend - PREP_RANGE then info[#info + 1] = string.format("|cffe6c229%d레벨부터 · 지금은 미리 받기|r", e.recommend)
+    else info[#info + 1] = string.format("%d레벨부터 권장", e.recommend) end
+  end
+  win.info:SetText(table.concat(info, "  ·  "))
+  local rows, dn, tt = BuildRows(d)
+  list = rows
+  win.sum:SetText(tt > 0 and string.format("내 진영 퀘스트 %d개 · 완료 %d개", tt, dn) or "내가 받을 수 있는 퀘스트가 없습니다.")
+  local maxOff = math.max(0, #list - RROWS)
+  if offset > maxOff then offset = maxOff end
+  if offset < 0 then offset = 0 end
+  for i = 1, RROWS do
+    local row = win.right[i]
+    local it = list[i + offset]
+    row.item = it
+    if it then
+      local x = it.child and 26 or 4
+      row.num:ClearAllPoints()
+      row.num:SetPoint("LEFT", x, 0)
+      row.num:SetText(it.num)
+      Shown(row.exp, it.header == true)
+      row.exp:SetText(expanded[d.key .. ":" .. it.id] and "[-]" or "[+]")
+      row.text:ClearAllPoints()
+      row.text:SetPoint("LEFT", row, "LEFT", x + (it.child and 36 or 30) + (it.header and 26 or 0), 0)
+      row.text:SetPoint("RIGHT", row, "RIGHT", -70, 0)
+      row.text:SetText(it.text)
+      local done = it.state == "done"
+      if done then row.text:SetTextColor(0.55, 0.55, 0.55) else row.text:SetTextColor(C_TEXT[1], C_TEXT[2], C_TEXT[3]) end
+      row.badge:SetText(STATE_BADGE[it.state] or (it.progress and (Hex(C_MUTED) .. it.progress .. "|r")) or "")
+      Shown(row.strike, done)
+      if done then
+        local w = math.min(row.text:GetStringWidth() or 0, row.text:GetWidth() or 0)
+        if w < 10 then w = row.text:GetWidth() or 100 end
+        row.strike:ClearAllPoints()
+        row.strike:SetPoint("LEFT", row.text, "LEFT", 0, 0)
+        row.strike:SetWidth(w)
+      end
+      row:Show()
+    else
+      row:Hide()
+    end
+  end
+  win.more:SetText(#list > RROWS and string.format("%d~%d / %d (마우스 휠로 넘김)", offset + 1, math.min(#list, offset + RROWS), #list) or "")
+end
+
+local function Select(key)
+  sel = key
+  offset = 0
+  local db_ = db()
+  if db_ then db_.dungeonSel = key end
+  RenderLeft()
+  RenderRight()
+end
+
+local function BestDungeon()
+  local db_ = db()
+  if db_ and type(db_.dungeonSel) == "string" then
+    for _, d in ipairs(DD) do if d.key == db_.dungeonSel then return d.key end end
+  end
+  local level = UnitLevel("player") or 1
+  local best, bestGap
+  for _, d in ipairs(DD) do
+    if not d.up and d.lv and level >= d.lv[1] then
+      local gap = math.abs(level - d.lv[2])
+      if not best or gap < bestGap then best, bestGap = d.key, gap end
+    end
+  end
+  return best or (DD[1] and DD[1].key)
+end
+
+local function ScrollLeft(dlt) offL = offL - dlt * 3 RenderLeft() end
+local function ScrollRight(dlt) offset = offset - dlt * 3 RenderRight() end
+
+local function Build()
+  win = CreateFrame("Frame", "KQGDungeonFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  win:SetSize(W, 52 + LROWS * ROW_H + 30)
+  win:SetPoint("CENTER", 120, 0)
+  win.bg = win:CreateTexture(nil, "BACKGROUND")
+  win.bg:SetAllPoints()
+  Solid(win.bg, C_BG[1], C_BG[2], C_BG[3], 0.96)
+  local top = win:CreateTexture(nil, "BORDER")
+  top:SetPoint("TOPLEFT") top:SetPoint("TOPRIGHT") top:SetHeight(2)
+  Solid(top, C_ACCENT[1], C_ACCENT[2], C_ACCENT[3], 1)
+  local split = win:CreateTexture(nil, "BORDER")
+  split:SetPoint("TOPLEFT", LEFT_W, -44) split:SetPoint("BOTTOMLEFT", LEFT_W, 28) split:SetWidth(1)
+  Solid(split, 1, 1, 1, 0.08)
+  win:SetMovable(true) win:EnableMouse(true) win:RegisterForDrag("LeftButton")
+  win:SetScript("OnDragStart", win.StartMoving) win:SetScript("OnDragStop", win.StopMovingOrSizing)
+  win:SetFrameStrata("DIALOG") win:SetClampedToScreen(true)
+  tinsert(UISpecialFrames, "KQGDungeonFrame")
+
+  local title = SetF(win:CreateFontString(nil, "OVERLAY"), 15, true)
+  title:SetPoint("TOPLEFT", 14, -12)
+  title:SetTextColor(C_TEXT[1], C_TEXT[2], C_TEXT[3])
+  title:SetText("던전 퀘스트")
+  local close = CreateFrame("Button", nil, win)
+  close:SetSize(20, 20)
+  close:SetPoint("TOPRIGHT", -8, -10)
+  close.t = SetF(close:CreateFontString(nil, "OVERLAY"), 15, true)
+  close.t:SetPoint("CENTER")
+  close.t:SetText("X")
+  close.t:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+  close:SetScript("OnEnter", function() close.t:SetTextColor(C_TEXT[1], C_TEXT[2], C_TEXT[3]) end)
+  close:SetScript("OnLeave", function() close.t:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3]) end)
+  close:SetScript("OnClick", function() win:Hide() end)
+
+  -- 왼쪽 던전 목록
+  for _, h in ipairs({ { "던전", "TOPLEFT", 50 }, { "입장", "TOPRIGHT", LEFT_W - 44 }, { "완료", "TOPRIGHT", LEFT_W - 10 } }) do
+    local fs = SetF(win:CreateFontString(nil, "OVERLAY"), 10)
+    fs:SetPoint(h[2], win, "TOPLEFT", h[3], -34)
+    fs:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+    fs:SetText(h[1])
+  end
+  win.left = {}
+  for i = 1, LROWS do
+    local row = CreateFrame("Button", nil, win)
+    row:SetSize(LEFT_W - 12, ROW_H - 1)
+    row:SetPoint("TOPLEFT", 6, -48 - (i - 1) * ROW_H)
+    row.bg = row:CreateTexture(nil, "BACKGROUND")
+    row.bg:SetAllPoints()
+    row.iconA = row:CreateTexture(nil, "ARTWORK")
+    row.iconA:SetSize(16, 16)
+    row.iconA:SetTexture(ICON_A)
+    row.iconH = row:CreateTexture(nil, "ARTWORK")
+    row.iconH:SetSize(16, 16)
+    row.iconH:SetTexture(ICON_H)
+    row.name = SetF(row:CreateFontString(nil, "OVERLAY"), 12)
+    row.name:SetPoint("LEFT", 44, 0)
+    row.name:SetPoint("RIGHT", row, "RIGHT", -64, 0)
+    row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
+    row.lv = SetF(row:CreateFontString(nil, "OVERLAY"), 12)
+    row.lv:SetPoint("RIGHT", row, "RIGHT", -38, 0)
+    row.lv:SetTextColor(C_GOLD[1], C_GOLD[2], C_GOLD[3])
+    row.cnt = SetF(row:CreateFontString(nil, "OVERLAY"), 11)
+    row.cnt:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    row.cnt:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", function(_, dlt) ScrollLeft(dlt) end)
+    row:SetScript("OnClick", function(self) if self.d then Select(self.d.key) end end)
+    row:SetScript("OnEnter", function(self)
+      local d = self.d
+      if not d then return end
+      if d.key ~= sel then Solid(self.bg, 1, 1, 1, 0.05) end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(DName(d), 1, 1, 1)
+      if d.lv and d.lv[1] > 0 then GameTooltip:AddLine(string.format("입장 %d레벨 · 권장 %d~%d레벨", d.lv[1], d.lv[2], d.lv[3]), C_TEXT[1], C_TEXT[2], C_TEXT[3]) end
+      if d.ent and KQG.MapName then
+        GameTooltip:AddLine(string.format("입구: %s (%.0f, %.0f)", KQG.MapName(d.ent[1]), d.ent[2], d.ent[3]), C_TEXT[1], C_TEXT[2], C_TEXT[3], true)
+      end
+      local fac = DungeonFaction(d)
+      GameTooltip:AddLine("진영: " .. (fac == "AH" and "공통" or fac == "A" and "얼라이언스" or fac == "H" and "호드" or "정보 없음")
+        .. " (퀘스트를 받을 수 있는 진영 기준)", C_MUTED[1], C_MUTED[2], C_MUTED[3], true)
+      if d.up then GameTooltip:AddLine("아직 열리지 않은 던전입니다.", C_MUTED[1], C_MUTED[2], C_MUTED[3]) end
+      GameTooltip:AddLine("던전·레벨 출처: Dungeon Codex", C_MUTED[1], C_MUTED[2], C_MUTED[3])
+      GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function(self)
+      if self.d and self.d.key ~= sel then Solid(self.bg, 0, 0, 0, 0) end
+      GameTooltip:Hide()
+    end)
+    win.left[i] = row
+  end
+
+  -- 오른쪽 퀘스트
+  local rx = LEFT_W + 14
+  win.title2 = SetF(win:CreateFontString(nil, "OVERLAY"), 14, true)
+  win.title2:SetPoint("TOPLEFT", rx, -34)
+  win.title2:SetTextColor(C_GOLD[1], C_GOLD[2], C_GOLD[3])
+  win.facA = win:CreateTexture(nil, "ARTWORK")
+  win.facA:SetSize(18, 18)
+  win.facA:SetTexture(ICON_A)
+  win.facA:SetPoint("LEFT", win.title2, "RIGHT", 8, 0)
+  win.facH = win:CreateTexture(nil, "ARTWORK")
+  win.facH:SetSize(18, 18)
+  win.facH:SetTexture(ICON_H)
+  win.info = SetF(win:CreateFontString(nil, "OVERLAY"), 11)
+  win.info:SetPoint("TOPLEFT", rx, -56)
+  win.info:SetTextColor(C_TEXT[1], C_TEXT[2], C_TEXT[3])
+  win.sum = SetF(win:CreateFontString(nil, "OVERLAY"), 11)
+  win.sum:SetPoint("TOPLEFT", rx, -74)
+  win.sum:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+  win.right = {}
+  local RW = W - LEFT_W - 22
+  for i = 1, RROWS do
+    local row = CreateFrame("Button", nil, win)
+    row:SetSize(RW, ROW_H)
+    row:SetPoint("TOPLEFT", rx - 4, -94 - (i - 1) * ROW_H)
+    row.hl = row:CreateTexture(nil, "BACKGROUND")
+    row.hl:SetAllPoints()
+    Solid(row.hl, 1, 1, 1, 0.05)
+    row.hl:Hide()
+    row.num = SetF(row:CreateFontString(nil, "OVERLAY"), 12)
+    row.num:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+    row.exp = SetF(row:CreateFontString(nil, "OVERLAY"), 12, true)
+    row.exp:SetPoint("LEFT", row.num, "RIGHT", 6, 0)
+    row.exp:SetTextColor(C_ACCENT[1], C_ACCENT[2], C_ACCENT[3])
+    row.text = SetF(row:CreateFontString(nil, "OVERLAY"), 12)
+    row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
+    row.strike = row:CreateTexture(nil, "OVERLAY")
+    row.strike:SetHeight(1)
+    Solid(row.strike, 0.75, 0.75, 0.75, 0.9)
+    row.badge = SetF(row:CreateFontString(nil, "OVERLAY"), 11, true)
+    row.badge:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", function(_, dlt) ScrollRight(dlt) end)
+    row:SetScript("OnClick", function(self)
+      local it = self.item
+      if not it then return end
+      if it.header then
+        local k = sel .. ":" .. it.id
+        expanded[k] = not expanded[k]
+        RenderRight()
+      elseif it.state ~= "done" then
+        if not SetForcedTo(it.id) then Print("이 퀘스트는 길 안내할 위치 정보가 없습니다.") end
+      end
+    end)
+    row:SetScript("OnEnter", function(self)
+      row.hl:Show()
+      local it = self.item
+      if not it then return end
+      local r, cq = Q[it.id], codexQ[it.id]
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(QTitle(it.id), 1, 1, 1)
+      local lv = (r and r[F.LVL]) or (cq and cq.lv) or 0
+      local mn = (r and r[F.MIN]) or (cq and cq.min) or 0
+      GameTooltip:AddLine(string.format("퀘스트 레벨 %d · 요구 레벨 %d", lv, mn), C_TEXT[1], C_TEXT[2], C_TEXT[3])
+      local s = r and r[F.START]
+      if s then
+        if s[1] == "i" then GameTooltip:AddLine("시작: 아이템「" .. (s[6] or "?") .. "」", C_TEXT[1], C_TEXT[2], C_TEXT[3], true)
+        else GameTooltip:AddLine("받는 곳: " .. (s[6] or "?") .. " · " .. ZoneName(s[3]) .. " " .. Coord(s), C_TEXT[1], C_TEXT[2], C_TEXT[3], true) end
+      elseif cq then
+        if cq.g then GameTooltip:AddLine("주는 NPC: " .. cq.g .. (cq.zm and KQG.MapName and (" · " .. KQG.MapName(cq.zm)) or ""), C_TEXT[1], C_TEXT[2], C_TEXT[3], true) end
+        if cq.t then GameTooltip:AddLine("영어 제목: " .. cq.t, C_MUTED[1], C_MUTED[2], C_MUTED[3], true) end
+        GameTooltip:AddLine("좌표 정보가 없습니다.", C_MUTED[1], C_MUTED[2], C_MUTED[3])
+      end
+      if it.header then
+        GameTooltip:AddLine(string.format("연계 %d단계 (첫 단계부터)", #it.chain), C_MUTED[1], C_MUTED[2], C_MUTED[3])
+        GameTooltip:AddLine("클릭: 연계 펼치기/접기", C_ACCENT[1], C_ACCENT[2], C_ACCENT[3])
+      elseif it.state ~= "done" and s then
+        GameTooltip:AddLine("클릭: 받는 곳으로 길 안내", C_ACCENT[1], C_ACCENT[2], C_ACCENT[3])
+      end
+      GameTooltip:AddLine("퀘스트 정보 출처: " .. (r and SRC_KQG or SRC_CODEX), C_MUTED[1], C_MUTED[2], C_MUTED[3], true)
+      GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() row.hl:Hide() GameTooltip:Hide() end)
+    win.right[i] = row
+  end
+  win:EnableMouseWheel(true)
+  win:SetScript("OnMouseWheel", function(_, dlt)
+    local x = GetCursorPosition() / (win:GetEffectiveScale() or 1)
+    if x < (win:GetLeft() or 0) + LEFT_W then ScrollLeft(dlt) else ScrollRight(dlt) end
+  end)
+  win.more = SetF(win:CreateFontString(nil, "OVERLAY"), 10)
+  win.more:SetPoint("BOTTOMRIGHT", -14, 34)
+  win.more:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+  local src = SetF(win:CreateFontString(nil, "OVERLAY"), 10)
+  src:SetPoint("BOTTOMLEFT", 14, 10)
+  src:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+  src:SetText(SRC_LINE)
+  win:SetScript("OnHide", function() expanded = {} end)
+  win:Hide()
 end
 
 local function Toggle()
   if not win then Build() end
   if win:IsShown() then win:Hide() else
     if KQG.ReadLog then KQG.ReadLog() end
-    Render(); win:Show()
+    if #DD == 0 then Print("던전 데이터(DungeonData.lua)를 읽지 못했습니다.") return end
+    win:Show()
+    local key = sel or BestDungeon()
+    -- 고른 던전이 목록에서 보이게 왼쪽 목록 위치를 맞춤
+    for i, d in ipairs(DD) do if d.key == key then offL = math.max(0, i - math.floor(LROWS / 2)) end end
+    Select(key)
   end
 end
 
@@ -244,3 +760,13 @@ KQG.DungeonCommand = function(arg)
   else Toggle() end
 end
 KQG.DungeonEvaluate = Evaluate
+-- 이 지역 번호가 던전(공격대 제외)인지 (Cleanup.lua에서 씀)
+local dungeonSet
+KQG.IsDungeonZone = function(area)
+  if not dungeonSet then
+    dungeonSet = {}
+    for _, d in ipairs(DUNGEONS) do dungeonSet[d[1]] = true end
+  end
+  if area == nil then return false end
+  return dungeonSet[ZONE_ALIAS[area] or area] == true
+end

@@ -1,0 +1,37 @@
+# 한글 퀘스트 길잡이 (KQuestGuide)
+
+## 데이터 출처와 연락처 (Data sources & contact)
+
+이 애드온은 아래에 적은 프로젝트들의 공개 데이터를 이용해 만들었습니다. 데이터를 만들고 공개해 주신 분들께 깊이 감사드립니다.
+
+저작권자나 데이터를 제공하신 분께서 사용을 원하지 않으시면, 언제든 아래 메일로 알려 주십시오.
+요청을 받는 즉시 해당 데이터의 사용을 멈추고, 이후 배포본에서 빼겠습니다. 그 밖에 필요하신 조치가 있으면 성심껏 협조하겠습니다.
+미처 허락을 구하지 못한 부분이 있었다면 진심으로 사과드립니다.
+
+- 연락처: mina709093@gmail.com
+
+> This add-on is built with publicly available data from the projects listed below, and we are sincerely grateful to their authors.
+> If you are a rights holder or data provider and would prefer that we not use your data, please contact us at any time at mina709093@gmail.com.
+> We will stop using it immediately upon request, remove it from future releases, and cooperate fully with any further steps you may need.
+> We apologize for any inconvenience this may have caused.
+
+### 어떤 데이터를 어디서 가져오는지
+
+| 데이터 | 가져온 곳 | 조건 | 들어 있는 파일 |
+|---|---|---|---|
+| 퀘스트·NPC·오브젝트 정보, 퀘스트 연계(선행·다음 퀘스트), 지역 지도 번호, 한글 이름 | [Questie](https://github.com/Questie/Questie) / [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터와 koKR 현지화 데이터를 변환 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `Data.lua`, `Map.lua`, `Objectives.lua` |
+| 퀘스트 보상 목록 | 만든 경위가 파일에 기록되어 있지 않아 다시 확인하고 있습니다. 확인되는 대로 이 표에 적겠습니다. | 확인 중 | `Rewards.lua` |
+| 게임에서 모은 퀘스트 위치 | 사용자들이 게임 안에서 직접 기록해 보내 준 자료(`/kqg 수집`)를 취합 | 보내 준 분들의 동의 | `FoundData.lua` |
+| 퀘스트 정리 판정 (실시간) | 설치된 Questie 애드온의 데이터베이스를 읽기만 함. `KQuestGuide` 데이터에 없는 퀘스트일 때만 사용 | GPLv3 | `Cleanup.lua` |
+| 던전 목록, 입장·권장 레벨, 입구 위치, 던전별 퀘스트 번호·레벨·진영·선행 번호, (한글이 없을 때만) 영어 퀘스트 제목·NPC 이름 | Dungeon Codex (AeonDungeonJournal) 1.4 (CurseForge 프로젝트 1715265)의 데이터에서 사실 정보만 변환. 전리품·보스·공략·지도 그림은 가져오지 않음 | GPL-2.0 | `DungeonData.lua` |
+| 길 안내 (선택) | 설치된 Shortest Path Forever 애드온의 공개 API를 읽기만 함 | 해당 애드온 조건 | `KQuestGuide.lua`, `Route.lua` |
+| 퀘스트 메뉴 연동 (선택) | 설치된 DaylightUI 애드온의 공개 API로 메뉴 항목만 추가 | 해당 애드온 조건 | `DaylightBridge.lua` |
+| 글꼴 | 마루부리(MaruBuri), 네이버 배포 | SIL OFL 1.1로 알려져 있음 | `fonts/` |
+
+### 데이터를 어떻게 확인하는지
+
+- **데이터에 있는 값만 쓰고 추측하지 않습니다.** 정보가 없으면 안내하지 않거나 "알 수 없음"으로 둡니다.
+- **게임이 알려 주는 정보를 먼저 씁니다.** 예를 들어 회색(저레벨) 퀘스트 기준은 게임의 회색 범위 함수에서, 던전 퀘스트 여부는 게임의 퀘스트 태그에서 가져옵니다.
+- **Questie에서 실시간으로 가져온 정보에는 반드시 출처를 남깁니다.** 화면에는 "(Questie)"로 표시하고, 마우스를 올리면 툴팁에 자세한 출처가 나옵니다.
+- **사용자 수집 자료는 취합 도구로 합친 뒤 검사합니다.** 기존 항목이 사라지지 않았는지, 좌표가 0~100 안인지, 파일이 정상적으로 읽히는지 확인한 다음에만 넣습니다.
+- 퀘스트를 포기하는 기능(퀘스트 정리)은 확인 창에서 사용자가 직접 고른 퀘스트만 처리합니다.

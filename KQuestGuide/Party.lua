@@ -7,7 +7,7 @@ local FONT_R = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Regular.ttf"
 local FONT_B = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Bold.ttf"
 local C_TEXT = { 0.93, 0.94, 0.96 }
 local C_MUTED = { 0.55, 0.60, 0.63 }
--- 상수 스타일 색 (Sangsu'sStyle UI 애드온과 같은 색)
+-- 상수 스타일 색 (상수팩 공통 색)
 local C_ACCENT = { 0.063, 0.816, 0.627 }
 local C_SEL = { 0.045, 0.32, 0.26 }
 local BG_ALPHA = 0.92

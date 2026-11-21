@@ -3,7 +3,7 @@
 --
 -- 하는 일: 지금 있는 지역에서 "받을 수 있는 퀘스트"와 "제출할 퀘스트"를 가까운 순서로 보여 주고,
 --          다음 목적지 방향을 화살표로 알려 줍니다. 퀘스트 이름/NPC/지역은 모두 한글입니다.
--- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 수집  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
+-- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 수집  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg gray chain  /kqg 정리  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
 
 local Q = KQG_DATA or {}
 local MAP = KQG_MAP or {}
@@ -223,6 +223,105 @@ local function Hide_Gray()
   return db.hideGray ~= false
 end
 
+-- 회색(저레벨) 판정: 게임의 회색 기준(내 레벨 - 퀘스트 레벨 > 회색 범위)과 같게 합니다.
+-- 회색 범위는 쓸 수 있는 게임 함수 순서대로 가져오고, 모두 없으면 7(예전 고정 기준과 같음)을 씁니다.
+local GRAY_FALLBACK = 7
+local grayRange, grayRangeSrc, grayRangeLevel = nil, nil, nil
+local function PlainNum(v)
+  if type(issecretvalue) == "function" then
+    local ok, sec = pcall(issecretvalue, v)
+    if ok and sec then return nil end
+  end
+  if type(v) == "number" and v >= 0 and v < 100 then return v end
+  return nil
+end
+local function GrayRange()
+  local lv = UnitLevel("player") or 0
+  if grayRange and grayRangeLevel == lv then return grayRange, grayRangeSrc end
+  local r, src
+  if C_QuestLog and type(C_QuestLog.GetTrivialRange) == "function" then
+    local ok, v = pcall(C_QuestLog.GetTrivialRange)
+    if ok then r = PlainNum(v) if r then src = "C_QuestLog.GetTrivialRange" end end
+  end
+  if not r and type(GetQuestGreenRange) == "function" then
+    local ok, v = pcall(GetQuestGreenRange, "player")
+    if ok then r = PlainNum(v) if r then src = "GetQuestGreenRange" end end
+  end
+  if not r and type(UnitQuestTrivialLevelRange) == "function" then
+    local ok, v = pcall(UnitQuestTrivialLevelRange, "player")
+    if ok then r = PlainNum(v) if r then src = "UnitQuestTrivialLevelRange" end end
+  end
+  if not r then r, src = GRAY_FALLBACK, "기본값" end
+  grayRange, grayRangeSrc, grayRangeLevel = r, src, lv
+  return r, src
+end
+local function IsGrayLevel(ql, level)
+  if type(ql) ~= "number" or ql <= 0 then return false end
+  return level - ql > GrayRange()
+end
+
+-- 연계 판정: 이 퀘스트를 끝내야 열리는 퀘스트(다음 퀘스트, 이 퀘스트를 선행으로 요구하는 퀘스트)
+local nextOf = {}         -- 퀘스트 번호 -> 이어지는 퀘스트 번호 목록 (BuildIndex에서 만듦)
+local chainCache = {}     -- 계산할 때마다 비움
+local CHAIN_DEPTH = 8
+
+-- 내가 나중에 받을 수 있는 퀘스트인지 (레벨·선행 제외)
+local function CanTakeLater(id, level)
+  local r = Q[id]
+  if not r then return false end
+  if db.skipped[id] or IsDone(id) then return false end
+  if r[F_MAXLVL] and level > r[F_MAXLVL] then return false end
+  if r[F_FLAGS] and math.floor(r[F_FLAGS]) % 2 == 1 then return false end
+  if not Bit(r[F_RACES], playerRaceBit) then return false end
+  if not Bit(r[F_CLASSES], playerClassBit) then return false end
+  local s = r[F_START]
+  local fr = s and s[7]
+  if fr and fr ~= "" and not string.find(fr, playerFaction, 1, true) then return false end
+  return true
+end
+
+-- id 다음으로 이어지는 퀘스트 중 test(번호)가 참인 것이 있는지 (CHAIN_DEPTH 단계까지)
+local function ChainHas(id, test)
+  local seen, cur = { [id] = true }, { id }
+  for _ = 1, CHAIN_DEPTH do
+    local nxt = {}
+    for _, q in ipairs(cur) do
+      for _, n in ipairs(nextOf[q] or {}) do
+        if not seen[n] then
+          seen[n] = true
+          if test(n) then return true end
+          nxt[#nxt + 1] = n
+        end
+      end
+    end
+    if #nxt == 0 then break end
+    cur = nxt
+  end
+  return false
+end
+
+-- 연계를 따라가면 내 레벨에 맞는(회색이 아닌) 받을 수 있는 퀘스트가 나오는지
+local function ChainLeadsToFit(id, level)
+  local key = id .. ":" .. level
+  local v = chainCache[key]
+  if v == nil then
+    v = ChainHas(id, function(n)
+      return CanTakeLater(n, level) and not IsGrayLevel(Q[n][F_LVL], level)
+    end)
+    chainCache[key] = v
+  end
+  return v
+end
+
+-- 안내에서 뺄 회색 퀘스트인지 (연계 예외 반영)
+local function GrayHidden(id, level)
+  if not Hide_Gray() then return false end
+  local r = Q[id]
+  if not r or not IsGrayLevel(r[F_LVL], level) then return false end
+  if db.grayChain ~= false and ChainLeadsToFit(id, level) then return false end
+  return true
+end
+
 local function Available(id, level)
   local r = Q[id]
   if not r then return false end
@@ -230,7 +329,7 @@ local function Available(id, level)
   if inLog[id] or IsDone(id) then return false end
   if (r[F_MIN] or 0) > level then return false end
   if r[F_MAXLVL] and level > r[F_MAXLVL] then return false end
-  if Hide_Gray() and (r[F_LVL] or 0) > 0 and level - r[F_LVL] >= 8 then return false end
+  if GrayHidden(id, level) then return false end
   if r[F_FLAGS] and math.floor(r[F_FLAGS] / 1) % 2 == 1 then return false end -- 반복 퀘스트
   if not Bit(r[F_RACES], playerRaceBit) then return false end
   if not Bit(r[F_CLASSES], playerClassBit) then return false end
@@ -262,6 +361,14 @@ end
 
 local function BuildIndex()
   byMap = {}
+  nextOf = {}
+  -- a를 끝내면 b가 열림
+  local function AddNext(a, b)
+    if a == b then return end
+    local t = nextOf[a]
+    if not t then t = {} nextOf[a] = t end
+    t[#t + 1] = b
+  end
   for id, r in pairs(Q) do
     local s = r[F_START]
     if s and s[3] then
@@ -271,7 +378,12 @@ local function BuildIndex()
         table.insert(byMap[m], id)
       end
     end
+    -- 연계 색인: 다음 퀘스트와, 이 퀘스트를 선행으로 요구하는 퀘스트
+    if r[F_NEXT] then AddNext(id, r[F_NEXT]) end
+    if r[F_PREG] then for _, p in ipairs(r[F_PREG]) do AddNext(p, id) end end
+    if r[F_PRES] then for _, p in ipairs(r[F_PRES]) do AddNext(p, id) end end
   end
+  chainCache = {}
 end
 
 -- 레벨링 엔진 -------------------------------------------------------------------
@@ -358,7 +470,7 @@ end
 local function Avail(id, level)
   if not Basic(id, level) then return false end
   local r = Q[id]
-  if Hide_Gray() and (r[F_LVL] or 0) > 0 and level - r[F_LVL] >= 8 then return false end
+  if GrayHidden(id, level) then return false end
   if (r[F_LVL] or 0) - level >= 6 then return false end -- 너무 높은 레벨은 아직 추천하지 않음
   if r[F_PARENT] and not inLog[r[F_PARENT]] then return false end
   return #PrereqUnmet(r) == 0
@@ -757,7 +869,7 @@ BuildPlan = function(level, m)
       local r = Q[id]
       if Basic(id, level) and #PrereqUnmet(r) == 0 and not (r[F_PARENT] and not inLog[r[F_PARENT]]) then
         local ql = r[F_LVL] or 0
-        local gray = Hide_Gray() and ql > 0 and level - ql >= 8
+        local gray = GrayHidden(id, level)
         if not gray and ql - level <= 8 then
           local st = r[F_START]
           local key = "acc" .. st[1] .. st[2]
@@ -1011,6 +1123,7 @@ local function Compute()
   lastCompute = GetTime and GetTime() or 0
   dirty = false
   doneCache = {}
+  chainCache = {}
   ReadLog()
   local level = UnitLevel("player") or 1
   local m = PlayerPos()
@@ -1878,7 +1991,7 @@ end
 
 local C_TEXT = { 0.93, 0.94, 0.96 }
 local C_MUTED = { 0.55, 0.60, 0.63 }
--- 상수 스타일 색 (Sangsu'sStyle UI 애드온과 같은 색)
+-- 상수 스타일 색 (상수팩 공통 색)
 local C_ACCENT = { 0.063, 0.816, 0.627 }
 local C_SEL = { 0.045, 0.32, 0.26 }
 local BG_ALPHA = 0.92
@@ -2138,10 +2251,13 @@ LayoutFrame = function()
   f.bSkipStep:ClearAllPoints()
   f.bNext:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, min and 12 or 76)
   f.bSkipStep:SetPoint("LEFT", f.bNext, "RIGHT", 6, 0)
+  f.bDungeon:ClearAllPoints()
+  f.bDungeon:SetPoint("LEFT", f.bSkipStep, "RIGHT", 6, 0)
+  if min then f.bDungeon:Hide() else f.bDungeon:Show() end
   if min then
-    f.bSkip:Hide() f.bUndo:Hide() f.bRefresh:Hide() f.bGear:Hide() f.bParty:Hide()
+    f.bSkip:Hide() f.bUndo:Hide() f.bRefresh:Hide() f.bClean:Hide() f.bGear:Hide() f.bParty:Hide()
   else
-    f.bSkip:Hide() f.bUndo:Show() f.bRefresh:Show() f.bGear:Show() f.bParty:Show()
+    f.bSkip:Hide() f.bUndo:Show() f.bRefresh:Show() f.bClean:Show() f.bGear:Show() f.bParty:Show()
     f.bSkip:ClearAllPoints() f.bUndo:ClearAllPoints() f.bGear:ClearAllPoints() f.bParty:ClearAllPoints()
     f.bParty:SetPoint("LEFT", f.bGear, "RIGHT", 6, 0)
     f.bGear:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 12)
@@ -2149,6 +2265,8 @@ LayoutFrame = function()
     f.bUndo:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 44)
     f.bRefresh:ClearAllPoints()
     f.bRefresh:SetPoint("LEFT", f.bUndo, "RIGHT", 6, 0)
+    f.bClean:ClearAllPoints()
+    f.bClean:SetPoint("LEFT", f.bRefresh, "RIGHT", 6, 0)
   end
   f:SetHeight(-y + 14 + (min and 36 or 136))
 end
@@ -2507,9 +2625,11 @@ local function BuildFrame()
     Refresh()
   end)
   f.bSkipStep = FlatButton(f, "단계 건너뛰기", 104, false, PlanSkip)
+  f.bDungeon = FlatButton(f, "던전 퀘스트", 100, false, function() if KQG and KQG.DungeonCommand then KQG.DungeonCommand("") end end)
   f.bSkip = FlatButton(f, "건너뛰기", 70, false, SkipCurrent)
   f.bUndo = FlatButton(f, "되돌리기", 70, false, UndoSkip)
   f.bRefresh = FlatButton(f, "퀘스트 갱신", 96, true, RefreshQuests)
+  f.bClean = FlatButton(f, "퀘스트 정리", 96, false, function() if KQG and KQG.CleanupOpen then KQG.CleanupOpen() end end)
   f.bGear = FlatButton(f, "추천 장비 습득 퀘스트", 200, false, function() if KQG and KQG.ToggleGear then KQG.ToggleGear() end end)
   f.bParty = FlatButton(f, "파티", 106, false, function() if KQG and KQG.ToggleParty then KQG.ToggleParty() end end)
   do
@@ -2768,6 +2888,12 @@ KQG.ClassBit = function() return playerClassBit end
 KQG.Print = Print
 KQG.ReadLog = function() ReadLog() end
 KQG.RebuildIndex = function() doneCache = {} BuildIndex() dirty = true end
+-- 회색·연계 판정 (Cleanup.lua에서 씀)
+KQG.GrayRange = function() return GrayRange() end
+KQG.IsGrayLevel = IsGrayLevel
+KQG.ChainHas = ChainHas
+KQG.ChainLeadsToFit = ChainLeadsToFit
+KQG.QName = function(id) return QName(id) end
 KQG.SetForced = function(g)
   forced = g
   if g and db.guideOff then db.guideOff = false spfKey, lastWpKey = nil, nil spfNext = 0 pcall(Refresh) end
@@ -2877,10 +3003,21 @@ SlashCmdList["KQG"] = function(msg)
     db.waypoint = (db.waypoint == false)
     lastWpKey = nil
     Print("지도 핀(목표 위치 표시) " .. (db.waypoint and "켜짐" or "꺼짐"))
-  elseif msg == "gray" then
+  elseif msg == "gray" or msg == "회색" then
     db.hideGray = not Hide_Gray()
     dirty = true
-    Print("회색(너무 낮은 레벨) 퀘스트 숨김 " .. (Hide_Gray() and "켜짐" or "꺼짐"))
+    local gr, src = GrayRange()
+    Print("회색(너무 낮은 레벨) 퀘스트 숨김 " .. (Hide_Gray() and "켜짐" or "꺼짐")
+      .. string.format(" (회색 기준: 내 레벨보다 %d레벨 넘게 낮음, 출처: %s)", gr, tostring(src)))
+  elseif msg == "gray chain" or msg == "회색 연계" then
+    db.grayChain = (db.grayChain == false)
+    chainCache = {}
+    dirty = true
+    Print("회색 퀘스트라도 연계가 이어지면 안내 " .. (db.grayChain ~= false and "켜짐" or "꺼짐"))
+  elseif msg == "정리" or msg == "clean" then
+    if KQG.CleanupOpen then KQG.CleanupOpen() end
+  elseif msg == "정리 버튼" or msg == "clean button" then
+    if KQG.CleanupToggleLogButton then KQG.CleanupToggleLogButton() end
   elseif msg == "minimap" then
     db.mmHide = not db.mmHide
     if mmBtn then if db.mmHide then mmBtn:Hide() else mmBtn:Show() end end
