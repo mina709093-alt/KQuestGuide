@@ -2,7 +2,8 @@
 -- 책 위치(BookData.lua의 KQG.BookData + 게임에서 /kqg 책 추가 로 기록한 지점) 가까이 가면
 -- "주변에 책이 있으니 찾아보세요" 창을 띄웁니다.
 --   * 1초마다 내 위치를 확인하고, 거리는 야드로 잽니다(KQG.Measure, 본체와 같은 계산).
---   * 반경(기본 40야드) 안에 들어올 때 한 번 알립니다. 반경의 1.5배 밖으로 나갔다가 다시 들어와야 또 알리고,
+--   * 반경(기본 40야드) 안에 들어올 때 한 번 알리고(소리·채팅), 창은 가까이 있는 동안 계속 떠 있으며 거리가 바뀝니다.
+--     반경의 1.5배 밖으로 멀어지거나, 책을 얻거나, 버튼을 누르면 닫힙니다. 반경의 1.5배 밖으로 나갔다가 다시 들어와야 또 알리고,
 --     같은 지점은 120초 안에 다시 알리지 않습니다.
 --   * 알리지 않는 경우: 그 책이 가방·은행에 있음, 수집 완료로 표시한 책, 무시로 표시한 지점, 전투 중(끝나면 다시 확인)
 --   * 은행: 은행을 열 때 내용을 저장해 두고, 은행이 닫혀 있을 때도 그 기록으로 판단합니다.
@@ -17,7 +18,7 @@ local RADIUS_DEF, RADIUS_MIN, RADIUS_MAX = 40, 10, 200
 local REARM = 1.5        -- 반경의 몇 배 밖으로 나가야 다시 알릴 수 있는지
 local COOLDOWN = 120     -- 같은 지점을 다시 알리기까지 (초)
 local CHECK_EVERY = 1    -- 위치 확인 주기 (초)
-local POPUP_SECS = 10    -- 알림 창이 저절로 닫히기까지 (초)
+local POPUP_SECS = 10    -- 시험 알림(/kqg 책 시험) 창이 저절로 닫히기까지 (초)
 
 -- 상수 스타일 색
 local C_TEXT = { 0.93, 0.94, 0.96 }
@@ -361,22 +362,41 @@ local function BuildPopup()
   return f
 end
 
-local function ShowPopup(s, dist, more)
-  popup = popup or BuildPopup()
-  popup.spot = s
+local function PopupLine(s, dist, more)
   local line = "「" .. BookTitle(s) .. "」  " .. WhereText(s)
   if dist then line = line .. string.format("  (약 %d야드)", dist) end
   if more and more > 0 then line = line .. string.format("\n근처에 %d곳 더 있습니다.", more) end
+  return line
+end
+
+-- 알림 창 띄우기. 실제 알림(test 아님)은 가까이 있는 동안 계속 떠 있고 Check가 거리를 고치거나 닫습니다.
+-- test(/kqg 책 시험)일 때만 POPUP_SECS 뒤 저절로 닫힙니다.
+local function ShowPopup(s, dist, more, test)
+  popup = popup or BuildPopup()
+  popup.spot, popup.more, popup.test = s, more, test and true or false
+  local line = PopupLine(s, dist, more)
   popup.text:SetText(line)
   popup.memo:SetText(s.memo or "")
   popup:Show()
   if PlaySound then pcall(PlaySound, SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959) end
   popupToken = popupToken + 1
   local my = popupToken
-  if C_Timer and C_Timer.After then
+  if test and C_Timer and C_Timer.After then
     C_Timer.After(POPUP_SECS, function() if popup and popupToken == my then popup:Hide() end end)
   end
   Print("주변에 책이 있으니 찾아보세요: " .. line:gsub("\n", " "))
+end
+
+-- 떠 있는 알림 창: 거리 고치기, 멀어지거나(반경의 1.5배 밖) 책을 얻었거나 완료·무시면 닫기
+local function UpdatePopup(m, mname, c, radius)
+  if not (popup and popup:IsShown() and popup.spot) or popup.test then return end
+  local s = popup.spot
+  local d = OnMap(s, m, mname) and Dist(m, s) or nil
+  if not d or d > radius * REARM or StateOf(s, c) then
+    popup:Hide()
+    return
+  end
+  popup.text:SetText(PopupLine(s, d, popup.more))
 end
 
 -- 확인 (1초마다) ---------------------------------------------------------------------
@@ -412,7 +432,10 @@ local function Check()
       end
     end
   end
-  if #hits == 0 then return end
+  if #hits == 0 then
+    UpdatePopup(m, mname, c, radius)
+    return
+  end
   table.sort(hits, function(a, z) return a.d < z.d end)
   for _, h in ipairs(hits) do h.st.last = now end
   ShowPopup(hits[1].s, hits[1].d, #hits - 1)
@@ -716,9 +739,9 @@ K.BookCommand = function(arg)
       end
     end
     if best then
-      ShowPopup(best, bd, 0)
+      ShowPopup(best, bd, 0, true)
     else
-      ShowPopup({ book = "시험용 책", zone = mname or "이 지역", memo = "알림 창 시험입니다. 이 지역에 좌표가 있는 책 지점이 없습니다." }, nil, 0)
+      ShowPopup({ book = "시험용 책", zone = mname or "이 지역", memo = "알림 창 시험입니다. 이 지역에 좌표가 있는 책 지점이 없습니다." }, nil, 0, true)
     end
   elseif cmd == "내보내기" or cmd == "export" then
     local lines = {}
