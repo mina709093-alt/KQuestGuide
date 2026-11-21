@@ -35,6 +35,7 @@ local offset = 0
 local tab = "rec"
 local lastEq = {}
 local ROWS = 7
+local K_SetRoundColor  -- 아래(둥근 버튼 부분)에서 정의. 전역으로 새지 않게 미리 지역 변수로 선언
 
 local function db() return K.DB() end
 local function Print(t) K.Print(t) end

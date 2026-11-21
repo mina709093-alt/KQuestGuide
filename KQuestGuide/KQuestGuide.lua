@@ -2889,6 +2889,8 @@ SlashCmdList["KQG"] = function(msg)
     PlanCommand(string.sub(msg, 6))
   elseif string.sub(msg, 1, 4) == "gear" then
     if KQG.GearCommand then KQG.GearCommand(string.sub(msg, 6)) end
+  elseif msg == "범위" or msg == "area" or string.sub(msg, 1, 7) == "범위 " or string.sub(msg, 1, 5) == "area " then
+    if KQG.AreaCommand then KQG.AreaCommand(msg:match("^%S+%s+(.*)$") or "") end
   elseif msg == "reset" then
     db.skipped = {}
     pinned = nil
