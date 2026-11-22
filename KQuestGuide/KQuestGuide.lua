@@ -3,7 +3,7 @@
 --
 -- 하는 일: 지금 있는 지역에서 "받을 수 있는 퀘스트"와 "제출할 퀘스트"를 가까운 순서로 보여 주고,
 --          다음 목적지 방향을 화살표로 알려 줍니다. 퀘스트 이름/NPC/지역은 모두 한글입니다.
--- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 수집  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg gray chain  /kqg 정리  /kqg 책  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
+-- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 수집  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg gray chain  /kqg 자동기준  /kqg 미리받기  /kqg 정리  /kqg 책  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
 
 local Q = KQG_DATA or {}
 local MAP = KQG_MAP or {}
@@ -11,6 +11,9 @@ local MAP = KQG_MAP or {}
 -- 퀘스트 데이터 칸 번호
 local F_NAME, F_LVL, F_MIN, F_RACES, F_CLASSES, F_PREG, F_PRES, F_EXCL, F_NEXT, F_ZONE,
   F_START, F_END, F_TEXT, F_FLAGS, F_PARENT, F_MAXLVL = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+-- (0.29.0) 안내(브레드크럼) 퀘스트 칸. BreadcrumbData.lua가 채웁니다(QuestieDB 27·28칸).
+--   F_BCFOR: 이 퀘스트가 안내하는 퀘스트 번호, F_BCS: 이 퀘스트로 안내하는 퀘스트 번호 목록
+local F_BCFOR, F_BCS = 17, 18
 
 local db
 local frame, arrow
@@ -322,43 +325,6 @@ local function GrayHidden(id, level)
   return true
 end
 
-local function Available(id, level)
-  local r = Q[id]
-  if not r then return false end
-  if db.skipped[id] then return false end
-  if inLog[id] or IsDone(id) then return false end
-  if (r[F_MIN] or 0) > level then return false end
-  if r[F_MAXLVL] and level > r[F_MAXLVL] then return false end
-  if GrayHidden(id, level) then return false end
-  if r[F_FLAGS] and math.floor(r[F_FLAGS] / 1) % 2 == 1 then return false end -- 반복 퀘스트
-  if not Bit(r[F_RACES], playerRaceBit) then return false end
-  if not Bit(r[F_CLASSES], playerClassBit) then return false end
-  if r[F_PREG] then
-    for _, p in ipairs(r[F_PREG]) do
-      if not IsDone(p) then return false end
-    end
-  end
-  if r[F_PRES] then
-    local any = false
-    for _, p in ipairs(r[F_PRES]) do
-      if IsDone(p) then any = true break end
-    end
-    if not any then return false end
-  end
-  if r[F_EXCL] then
-    for _, p in ipairs(r[F_EXCL]) do
-      if IsDone(p) or inLog[p] then return false end
-    end
-  end
-  if r[F_NEXT] and (IsDone(r[F_NEXT]) or inLog[r[F_NEXT]]) then return false end
-  if r[F_PARENT] and not inLog[r[F_PARENT]] then return false end
-  local s = r[F_START]
-  if not s or not s[3] then return false end
-  local fr = s[7]
-  if fr and fr ~= "" and not string.find(fr, playerFaction, 1, true) then return false end
-  return true
-end
-
 local function BuildIndex()
   byMap = {}
   nextOf = {}
@@ -382,6 +348,8 @@ local function BuildIndex()
     if r[F_NEXT] then AddNext(id, r[F_NEXT]) end
     if r[F_PREG] then for _, p in ipairs(r[F_PREG]) do AddNext(p, id) end end
     if r[F_PRES] then for _, p in ipairs(r[F_PRES]) do AddNext(p, id) end end
+    -- (0.29.0) 안내 퀘스트 -> 안내받는 퀘스트 (회색 안내 퀘스트도 연계 예외로 남기기 위해)
+    if r[F_BCFOR] then AddNext(id, r[F_BCFOR]) end
   end
   chainCache = {}
 end
@@ -440,6 +408,14 @@ local function Basic(id, level)
     end
   end
   if r[F_NEXT] and (DoneC(r[F_NEXT]) or inLog[r[F_NEXT]]) then return false end
+  -- (0.29.0) 안내 퀘스트: 안내하는 퀘스트를 이미 받았거나 끝냈으면 필요 없음 (Questie와 같은 규칙)
+  if r[F_BCFOR] and (DoneC(r[F_BCFOR]) or inLog[r[F_BCFOR]]) then return false end
+  -- 이 퀘스트로 안내하는 퀘스트를 들고 있으면, 그 퀘스트를 제출하면서 받게 되므로 따로 안내하지 않음
+  if r[F_BCS] then
+    for _, b in ipairs(r[F_BCS]) do
+      if inLog[b] then return false end
+    end
+  end
   local s = r[F_START]
   if not s or not s[3] then return false end
   local fr = s[7]
@@ -466,12 +442,19 @@ local function PrereqUnmet(r)
   return un
 end
 
+-- 레벨 기준 (0.28.0: 목록과 계획이 같은 기준을 씁니다)
+-- (0.29.0) 0.28.0 이후 새로 넣은 안내 값과 함수 모음. 이 파일의 바깥 local은 Lua 5.1 제한(200개)에 거의 닿아 있어서
+-- 새 이름은 local을 늘리지 말고 이 표에 넣습니다.
+local Guide = {}
+Guide.ACCEPT_ABOVE = 8    -- 퀘스트 레벨이 내 레벨보다 이만큼 넘게 높으면 아직 수락 안내에 넣지 않음
+Guide.HARD_ABOVE = 5      -- 내 레벨보다 이만큼 이상 높으면 어려운 퀘스트(계획에서 뒤로 미루거나 보류)
+
 -- 지금 받을 수 있는 퀘스트 (선행 충족 + 부모/레벨 회색 설정 반영)
 local function Avail(id, level)
   if not Basic(id, level) then return false end
   local r = Q[id]
   if GrayHidden(id, level) then return false end
-  if (r[F_LVL] or 0) - level >= 6 then return false end -- 너무 높은 레벨은 아직 추천하지 않음
+  if (r[F_LVL] or 0) - level > Guide.ACCEPT_ABOVE then return false end -- 너무 높은 레벨은 아직 추천하지 않음
   if r[F_PARENT] and not inLog[r[F_PARENT]] then return false end
   return #PrereqUnmet(r) == 0
 end
@@ -499,6 +482,19 @@ local function ChainBonus(id, level)
   return sum
 end
 
+-- (0.29.0) 선행 사슬의 첫 걸음이 얼마나 먼지 (작을수록 가까움). 같은 지도면 지도 좌표 거리,
+-- 다른 지도면 100000, 위치를 모르면 1e9. 내 위치(chainPos)는 Compute가 계산할 때마다 채웁니다.
+Guide.chainPos = {}
+function Guide.ChainCost(ch)
+  local first = ch and ch[1]
+  local r = first and Q[first]
+  local loc = r and (inLog[first] and r[F_END] or r[F_START])
+  local mp = loc and loc[3] and UiMapOf(loc[3])
+  if not mp then return 1e9 end
+  if mp ~= Guide.chainPos.map or not Guide.chainPos.x or not loc[4] then return 100000 end
+  return math.sqrt(((loc[4] - Guide.chainPos.x) * 1.5) ^ 2 + (loc[5] - Guide.chainPos.y) ^ 2)
+end
+
 -- 거꾸로 따라가 "처음 받을 퀘스트"부터의 사슬을 만듭니다. 불가능하면 nil.
 local function Backchain(id, level, depth)
   if depth > 8 then return nil end
@@ -508,6 +504,23 @@ local function Backchain(id, level, depth)
   if not Basic(id, level + 12) then return nil end
   local un = PrereqUnmet(r)
   if #un == 0 then return { id } end
+  -- (0.29.0) 반드시 할 선행(F_PREG)은 다 했고 "아무거나 하나"(F_PRES)만 남았으면, 첫 걸음이 가장 가까운 쪽을 고릅니다
+  local pregLeft = false
+  for _, p in ipairs(r[F_PREG] or {}) do
+    if not DoneC(p) then pregLeft = true break end
+  end
+  if not pregLeft and #un > 1 then
+    local best, bc
+    for _, p in ipairs(un) do
+      local sub = Backchain(p, level, depth + 1)
+      if sub then
+        local c = Guide.ChainCost(sub)
+        if not best or c < bc then best, bc = sub, c end
+      end
+    end
+    if best then best[#best + 1] = id end
+    return best
+  end
   for _, p in ipairs(un) do
     local sub = Backchain(p, level, depth + 1)
     if sub then
@@ -606,6 +619,63 @@ local function SkipKey(g)
 end
 local planMode = "normal"
 local anchorMap          -- 기준 지역: 퀘스트 갱신/파티 모드 시작 때만 바뀌고, 지역을 옮겨도 유지된다
+-- (0.28.0) 기준 지역 자동 전환: 지난 계산에서 이동을 추천한 지역들(지도 번호 -> true).
+-- 이 중 한 곳에 도착하면 그 지역을 새 기준으로 삼습니다. 끄기: /kqg 자동기준 (db.autoAnchor == false)
+Guide.autoTargets = {}
+
+-- 이동 추천 지역 모으기: [다음 지역] 단계의 지도와 지역 이동 추천(levelZone, 후보 목록).
+-- 다른 지역 선행 퀘스트를 하러 가는 중(external)에는 모으지 않습니다(원래 지역으로 돌아와야 하므로).
+function Guide.CollectAutoTargets(list, mode, zone, sugg)
+  local t = {}
+  if mode == "external" then return t end
+  for _, g in ipairs(list or {}) do
+    if g.state == "MOVING_TO_NEXT_REGION" and g.map and type(g.key) == "string" and string.sub(g.key, 1, 6) == "region" then
+      t[g.map] = true
+    end
+  end
+  if zone then t[zone] = true end
+  for _, s in ipairs(sugg or {}) do
+    if s.map then t[s.map] = true end
+  end
+  return t
+end
+
+-- (0.29.0) 떠나기 전에 받아 가기: 다음에 갈 지역(zones)의 내 레벨 퀘스트 중
+--  - 선행 사슬의 첫 퀘스트가 지금 지역(m)에서 시작하면 그 퀘스트("pre"),
+--  - 그 퀘스트로 안내하는 퀘스트(브레드크럼)가 지금 지역에서 시작하면 그 퀘스트("bc")를
+-- 지금 받을 퀘스트로 고릅니다. 회색이라도 고릅니다(다음 지역 퀘스트를 여는 데 필요하므로).
+-- 결과: 퀘스트 번호 -> { target = 다음 지역 퀘스트, map = 다음 지역, why = "pre" | "bc" }. 끄기: /kqg 미리받기
+Guide.prepick = {}
+function Guide.PrepickTake(out, q, level, m, target, tm, why)
+  if out[q] or inLog[q] then return end
+  local qr = Q[q]
+  local s = qr and qr[F_START]
+  if not (s and s[3] and UiMapOf(s[3]) == m) then return end
+  if not Basic(q, level) or #PrereqUnmet(qr) > 0 then return end
+  if qr[F_PARENT] and not inLog[qr[F_PARENT]] then return end
+  if (qr[F_LVL] or 0) - level > Guide.ACCEPT_ABOVE then return end
+  out[q] = { target = target, map = tm, why = why }
+end
+function Guide.FindPrepick(level, m, zones)
+  local out = {}
+  if not m or db.prepick == false then return out end
+  for _, tm in ipairs(zones or {}) do
+    if tm ~= m then
+      for _, id in ipairs(byMap[tm] or {}) do
+        local r = Q[id]
+        if Fit(r[F_LVL], level) >= 0.5 and Basic(id, level) then
+          if #PrereqUnmet(r) > 0 then
+            local ch = Backchain(id, level, 0)
+            if ch and #ch > 1 then Guide.PrepickTake(out, ch[1], level, m, id, tm, "pre") end
+          else
+            for _, b in ipairs(r[F_BCS] or {}) do Guide.PrepickTake(out, b, level, m, id, tm, "bc") end
+          end
+        end
+      end
+    end
+  end
+  return out
+end
 
 -- 지도 좌표(%)를 야드로 바꾸는 배율. 지역마다 크기가 달라서 실제 월드 좌표로 보정합니다.
 local scaleX, scaleY = 15, 10
@@ -774,6 +844,31 @@ local function ClientTurnPoint(qid, m)
   return nil
 end
 
+-- (0.29.0) 다른 지역 선행을 하러 가는 중에도 미리 받기: 지도 mp에서 받을 미리 받기 퀘스트를
+-- NPC별 수락 단계로 묶어 가까운 순서로 돌려줍니다. 고른 퀘스트는 Guide.prepick에도 넣습니다(/kqg debug).
+-- pp: FindPrepick 결과, skip: 넣지 않을 퀘스트(선행 사슬)
+function Guide.PrepickSteps(pp, mp, skip, sx, sy)
+  local hubs, list = {}, {}
+  for q, info in pairs(pp) do
+    local st = Q[q] and Q[q][F_START]
+    if not skip[q] and st and st[3] and UiMapOf(st[3]) == mp then
+      Guide.prepick[q] = Guide.prepick[q] or info
+      local key = "ppacc" .. st[1] .. st[2]
+      local g = hubs[key]
+      if not g then
+        g = MkStep("accept", "MOVING_TO_NEXT_QUEST_GIVER", key, {}, st)
+        g.prepick = info
+        hubs[key] = g
+        list[#list + 1] = g
+      end
+      g.quests[#g.quests + 1] = q
+    end
+  end
+  for _, g in ipairs(list) do SortedQuests(g.quests) end
+  table.sort(list, function(a, b) return a.key < b.key end)   -- pairs 순서에 흔들리지 않게
+  return NNOrder(list, function(g) return g.loc[4], g.loc[5] end, sx, sy)
+end
+
 BuildPlan = function(level, m)
   if not m then return end
   CalibrateScale(m)
@@ -814,7 +909,21 @@ BuildPlan = function(level, m)
       tr.where = "교통수단 정보가 없어 직접 이동하세요. 비행경로/배를 추천하지 않습니다."
       Add(tr)
     end
-    for _, g in ipairs(seq) do Add(g) end
+    -- (0.29.0) 선행을 하러 간 지역에서도 미리 받기: 그 지역의 마지막 선행 단계 뒤에 수락 단계를 넣습니다.
+    -- 대상 = 다음에 갈 지역들 + 기준 지역(돌아가서 할 퀘스트의 선행·안내 퀘스트도 그 지역에서 받아 가게)
+    local skip = { [t.qid] = true }
+    for _, q in ipairs(chain or {}) do skip[q] = true end
+    local ppZones = { m }
+    for _, z in ipairs(Guide.prepickZones or {}) do ppZones[#ppZones + 1] = z end
+    for i, g in ipairs(seq) do
+      Add(g)
+      local nx = seq[i + 1]
+      if g.map and g.map ~= m and not (nx and nx.map == g.map) then
+        for _, pg in ipairs(Guide.PrepickSteps(Guide.FindPrepick(level, g.map, ppZones), g.map, skip, g.loc[4], g.loc[5])) do
+          Add(pg)
+        end
+      end
+    end
     if m ~= t.map or #seq > 0 then
       local tl = Q[t.qid][F_START]
       if tl and tl[3] then
@@ -824,6 +933,11 @@ BuildPlan = function(level, m)
         rt.where = "교통수단 정보가 없어 직접 이동하세요."
         Add(rt)
       end
+    end
+    -- (0.29.0) 돌아온 기준 지역에서 받을 미리 받기 퀘스트 (평소 수락 목록은 이 모드에서 만들지 않으므로)
+    if chain then
+      local tl = Q[t.qid][F_START]
+      for _, pg in ipairs(Guide.PrepickSteps(Guide.prepick, m, skip, tl and tl[4], tl and tl[5])) do Add(pg) end
     end
   end
 
@@ -866,28 +980,25 @@ BuildPlan = function(level, m)
   if planMode ~= "external" or not chain then
     local hubs = {}
     for _, id in ipairs(byMap[m] or {}) do
-      local r = Q[id]
-      if Basic(id, level) and #PrereqUnmet(r) == 0 and not (r[F_PARENT] and not inLog[r[F_PARENT]]) then
-        local ql = r[F_LVL] or 0
-        local gray = GrayHidden(id, level)
-        if not gray and ql - level <= 8 then
-          local st = r[F_START]
-          local key = "acc" .. st[1] .. st[2]
-          local g = hubs[key]
-          if not g then
-            g = MkStep("accept", "MOVING_TO_QUEST_GIVER", key, {}, st)
-            hubs[key] = g
-            stops[#stops + 1] = g
-          end
-          g.quests[#g.quests + 1] = id
+      -- 목록(Compute 3번)과 같은 조건(Avail)으로 받을 퀘스트를 고릅니다. (0.29.0) 미리 받기 퀘스트도 넣습니다
+      if Avail(id, level) or Guide.prepick[id] then
+        local st = Q[id][F_START]
+        local key = "acc" .. st[1] .. st[2]
+        local g = hubs[key]
+        if not g then
+          g = MkStep("accept", "MOVING_TO_QUEST_GIVER", key, {}, st)
+          hubs[key] = g
+          stops[#stops + 1] = g
         end
+        g.quests[#g.quests + 1] = id
+        if Guide.prepick[id] and not g.prepick then g.prepick = Guide.prepick[id] end
       end
     end
     for _, g in pairs(hubs) do
       SortedQuests(g.quests)
-      local easy = false
+      local easy = g.prepick and true or false   -- 미리 받기는 뒤로 미루지 않음
       for _, id in ipairs(g.quests) do
-        if (Q[id][F_LVL] or 0) - level < 5 then easy = true end
+        if (Q[id][F_LVL] or 0) - level < Guide.HARD_ABOVE then easy = true end
       end
       g.hardOnly = not easy
     end
@@ -943,7 +1054,7 @@ BuildPlan = function(level, m)
       end
       if #pts > 0 then
         local ql = r[F_LVL] or 0
-        local hard = (ql - level >= 5) or logElite[qid]
+        local hard = (ql - level >= Guide.HARD_ABOVE) or logElite[qid]
         if KQG.PartyActive and KQG.PartyActive() then hard = false end
         if hard and not (db.planForce and db.planForce[qid]) then
           planDeferred[#planDeferred + 1] = qid
@@ -1126,7 +1237,8 @@ local function Compute()
   chainCache = {}
   ReadLog()
   local level = UnitLevel("player") or 1
-  local m = PlayerPos()
+  local m, ppx, ppy = PlayerPos()
+  Guide.chainPos = { map = m, x = ppx, y = ppy }   -- (0.29.0) 선행 후보 중 가까운 것 고르기(Guide.ChainCost)
   if not m and steps and #steps > 0 then
     -- 지역을 넘어가는 로딩 중에는 위치를 읽을 수 없으므로 기존 안내를 그대로 유지한다
     dirty = true
@@ -1135,6 +1247,16 @@ local function Compute()
   curMap = m
   -- 기준 지역: 처음 한 번 현재 지역으로 잡고, 이후에는 갱신 버튼/파티 모드 시작 때만 바꾼다
   if not anchorMap and m then anchorMap = m end
+  -- (0.28.0) 이동을 추천한 지역에 도착하면 그 지역을 새 기준으로 삼는다 (파티 퀘스트 중에는 파티 기능이 정함)
+  if anchorMap and m and m ~= anchorMap and Guide.autoTargets[m] and db.autoAnchor ~= false
+    and not (KQG.PartyActive and KQG.PartyActive()) then
+    anchorMap = m
+    Guide.autoTargets = {}
+    db.planTarget = nil
+    prevSteps = {}
+    -- 화살표·SPF 안내는 단계 key가 바뀌므로 다음 UpdateArrow에서 새로 걸린다 (지역 이동 때 spfNext도 이미 0)
+    Print("|cff4a9fc7[기준 지역]|r 추천 지역 " .. MapName(m) .. "에 도착해서 이 지역을 새 기준으로 안내합니다. (끄기: /kqg 자동기준)")
+  end
   if anchorMap then m = anchorMap end
   steps, progress, suggestions, locked, noloc = {}, {}, {}, {}, {}
 
@@ -1354,7 +1476,24 @@ local function Compute()
     end
   end
 
+  -- (0.29.0) 떠나기 전에 받아 가기: 다음에 갈 지역 = 지역 순위에서 점수 6 이상인 다른 지역 3곳
+  --   ([다음 지역] 단계는 이 중 첫 번째를 고름), 이동 추천 지역, 후보 목록
+  do
+    local zones = {}
+    for _, z in ipairs(zoneRank) do
+      if z.map ~= m and z.score >= 6 then
+        zones[#zones + 1] = z.map
+        if #zones >= 3 then break end
+      end
+    end
+    if levelZone then zones[#zones + 1] = levelZone end
+    for _, s in ipairs(suggestions) do zones[#zones + 1] = s.map end
+    Guide.prepickZones = zones   -- (0.29.0) 선행을 하러 간 지역의 미리 받기에도 씀(BuildPlan)
+    Guide.prepick = Guide.FindPrepick(level, m, zones)
+  end
   BuildPlan(level, m)
+  -- 이번에 이동을 추천한 지역 (파티원 단계로 바꾸기 전, 내 계산 기준)
+  Guide.autoTargets = Guide.CollectAutoTargets(steps, planMode, levelZone, suggestions)
   if KQG.PartyFollowSteps then
     local okF, fs = pcall(KQG.PartyFollowSteps)
     if okF and fs and #fs > 0 then
@@ -1409,6 +1548,7 @@ local function StepTitle(g)
   elseif g.kind == "doing" then tag = "|cff2f86c8[수행]|r "
   else tag = "|cffd18a00[수락]|r " end
   if g.chain then tag = tag .. "|cff4a9fc7[연계]|r " end
+  if g.prepick then tag = tag .. "|cff10d0a0[미리 받기]|r " end
   local t = tag .. first[F_NAME]
   if more > 0 then t = t .. " 외 " .. more .. "개" end
   for _, id in ipairs(g.quests) do
@@ -1669,6 +1809,13 @@ end
 
 -- 이 단계가 다른 퀘스트를 열기 위한 연계 퀘스트일 때의 설명
 local function ChainBadge(g)
+  -- (0.29.0) 미리 받기: 다음 지역 퀘스트의 선행이거나 안내 퀘스트
+  local pp = g and g.prepick
+  if pp then
+    return "|cff10d0a0◆ 미리 받기|r  " .. MapName(pp.map) .. "의 |cffffffff「" .. QName(pp.target) .. "」|r"
+      .. (pp.why == "bc" and "(으)로 안내하는 퀘스트입니다." or "를 열려면 먼저 해야 하는 퀘스트입니다.")
+      .. " 이 지역을 떠나기 전에 받아 가세요"
+  end
   local c = g and g.chain
   if not c then return nil end
   local target = "|cffffffff「" .. QName(c.target) .. "」|r"
@@ -2871,7 +3018,7 @@ KQG = KQG or {}
 KQG.Q = Q
 KQG.F = { NAME = F_NAME, LVL = F_LVL, MIN = F_MIN, RACES = F_RACES, CLASSES = F_CLASSES, PREG = F_PREG, PRES = F_PRES,
   EXCL = F_EXCL, NEXT = F_NEXT, ZONE = F_ZONE, START = F_START, END = F_END, TEXT = F_TEXT, FLAGS = F_FLAGS,
-  PARENT = F_PARENT, MAXLVL = F_MAXLVL }
+  PARENT = F_PARENT, MAXLVL = F_MAXLVL, BCFOR = F_BCFOR, BCS = F_BCS }
 KQG.DB = function() return db end
 KQG.IsDone = function(id) return IsDone(id) end
 KQG.InLog = function(id) return inLog[id] and true or false end
@@ -2990,6 +3137,14 @@ SlashCmdList["KQG"] = function(msg)
       end
     end
     Print("완료(제출 가능) 퀘스트 " .. n .. "개 / 현재 지도 " .. tostring(curMap))
+  elseif msg == "자동기준" or msg == "auto anchor" then
+    db.autoAnchor = (db.autoAnchor == false)
+    Print("추천 지역에 도착하면 기준 지역 자동 전환 " .. (db.autoAnchor ~= false and "켜짐" or "꺼짐")
+      .. " (꺼져 있으면 갱신 버튼으로 바꿉니다)")
+  elseif msg == "미리받기" or msg == "prepick" then
+    db.prepick = (db.prepick == false)
+    dirty = true
+    Print("다음 지역 퀘스트의 선행·안내 퀘스트를 떠나기 전에 받도록 안내 " .. (db.prepick ~= false and "켜짐" or "꺼짐"))
   elseif msg == "min" then
     db.min = not db.min
     dirty = true
@@ -3065,6 +3220,15 @@ SlashCmdList["KQG"] = function(msg)
     for i = 1, math.min(3, #zoneRank) do
       Print("지역순위 " .. i .. ": " .. MapName(zoneRank[i].map) .. " " .. string.format("%.1f", zoneRank[i].score))
     end
+    -- (0.29.0) 미리 받기 후보
+    local pn = 0
+    for qid, pp in pairs(Guide.prepick) do
+      pn = pn + 1
+      if pn <= 5 then
+        Print("미리 받기: " .. QName(qid) .. " -> " .. MapName(pp.map) .. " " .. QName(pp.target) .. (pp.why == "bc" and " (안내 퀘스트)" or " (선행)"))
+      end
+    end
+    Print("미리 받기 후보 " .. pn .. "개" .. (db.prepick == false and " (꺼짐: /kqg 미리받기)" or ""))
   else
     if frame:IsShown() then frame:Hide() else frame:Show() end
   end
