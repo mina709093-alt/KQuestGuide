@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.27.2",
+    "11월 22일 취합 데이터 반영: 퀘스트 38→43, 시작 위치 +4, 제출 위치 +6, 목표 위치 +8",
+  },
   { ver = "0.27.1",
     "책 알림 창이 10초 뒤 저절로 닫히지 않고, 책 가까이 있는 동안 계속 떠 있습니다. 거리(약 N야드)는 1초마다 바뀝니다.",
     "알림 창은 멀어지거나(반경의 1.5배 밖), 책을 가방에 넣거나, 버튼을 누르면 닫힙니다. 소리와 채팅 알림은 처음 가까워질 때 한 번만 냅니다.",
