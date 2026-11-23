@@ -4,6 +4,9 @@
 --     SPF가 없으면 게임 지도 핀과 KQuestGuide 화살표로 안내합니다.
 --   * 위치 데이터: KQuestGuide 목표 자료(KQG_OBJ, 게임에서 수집한 자료 포함) 중 내 위치에서 가장 가까운 목표.
 --     자료에 없으면 게임이 주는 퀘스트 지도 위치(C_QuestLog.GetQuestsOnMap, 지금 있는 지도만)를 씁니다.
+--   * (0.29.1) 그래도 없으면: 전달·대화 퀘스트(목표 없음)는 제출 NPC, Questie 자료(읽기만: 제출 NPC, 목표 몬스터·오브젝트·
+--     아이템을 떨어뜨리는 곳), 게임의 퀘스트 지도(GetQuestUiMapID) 위치, 게임의 다음 목적지(C_QuestLog.GetNextWaypoint) 순서.
+--     제출 NPC도 KQuestGuide 자료 → Questie → 게임 순서로 찾습니다(던전 퀘스트처럼 KQuestGuide 자료에 없는 퀘스트).
 --   * 위치를 모르면 임의의 곳을 안내하지 않고 "위치 정보가 없습니다"라고 알립니다.
 -- 안내가 끝나는 때 (주변 퀘스트를 이어서 할 수 있게 자동으로 다른 곳으로 넘기지 않습니다)
 --   * 도착: 목표 지역 대표 위치 30야드 이내, 제출 NPC 5야드 이내
@@ -101,19 +104,174 @@ local function Nearest(spots)
   return best or spots[1]
 end
 
+-- (0.29.1) KQuestGuide 자료에 위치가 없을 때 쓰는 보조 위치 ------------------------------
+-- 순서: Questie 자료(읽기만) → 게임이 주는 퀘스트 지도 위치(퀘스트 지도) → 게임의 다음 목적지(GetNextWaypoint)
+
+-- Questie의 QuestieDB 모듈 (Questie가 없거나 준비 전이면 nil). Cleanup.lua와 같은 방식
+local function QDB()
+  local QL = rawget(_G, "QuestieLoader")
+  local qs = rawget(_G, "Questie")
+  if type(QL) ~= "table" or type(QL.ImportModule) ~= "function" then return nil end
+  if type(qs) ~= "table" or qs.started ~= true then return nil end
+  local ok, mod = pcall(QL.ImportModule, QL, "QuestieDB")
+  if ok and type(mod) == "table" and type(mod.QueryQuestSingle) == "function" then return mod end
+  return nil
+end
+
+local function QGet(fn, id, field)
+  if type(fn) ~= "function" then return nil end
+  local ok, v = pcall(fn, id, field)
+  if ok then return v end
+  return nil
+end
+
+-- Questie 지역 번호 → 지도 번호 (KQuestGuide 표 먼저, 없으면 Questie ZoneDB)
+local function AreaMap(area)
+  local m = K.UiMapOf and K.UiMapOf(area)
+  if m then return m end
+  local QL = rawget(_G, "QuestieLoader")
+  if type(QL) ~= "table" or type(QL.ImportModule) ~= "function" then return nil end
+  local ok, Z = pcall(QL.ImportModule, QL, "ZoneDB")
+  if not ok or type(Z) ~= "table" or type(Z.GetUiMapIdByAreaId) ~= "function" then return nil end
+  local ok2, mm = pcall(Z.GetUiMapIdByAreaId, Z, area)
+  if ok2 and type(mm) == "number" and mm > 0 then return mm end
+  return nil
+end
+
+-- Questie 출현 위치 표 { [지역] = { {x, y}, ... } }를 후보 목록에 넣습니다 (최대 40개)
+local function AddSpawns(out, spawns, q, name)
+  if type(spawns) ~= "table" then return end
+  for area, list in pairs(spawns) do
+    local map = type(area) == "number" and AreaMap(area)
+    if map and type(list) == "table" then
+      for _, p in ipairs(list) do
+        if #out >= 40 then return end
+        if type(p) == "table" and type(p[1]) == "number" and type(p[2]) == "number" and p[1] > 0 and p[2] > 0 then
+          out[#out + 1] = { map = map, loc = { "q", q, area, p[1], p[2], tostring(name) .. " (Questie)" } }   -- 출처 표시(README 규칙)
+        end
+      end
+    end
+  end
+end
+
+-- NPC(npcs)와 오브젝트(objs) 번호들의 출현 위치
+local function AddUnits(out, db, npcs, objs, q, label)
+  for _, id in ipairs(type(npcs) == "table" and npcs or {}) do
+    if type(id) == "number" then
+      local nm = QGet(db.QueryNPCSingle, id, "name")
+      AddSpawns(out, QGet(db.QueryNPCSingle, id, "spawns"), q, (type(nm) == "string" and nm) or label)
+    end
+  end
+  for _, id in ipairs(type(objs) == "table" and objs or {}) do
+    if type(id) == "number" then
+      local nm = QGet(db.QueryObjectSingle, id, "name")
+      AddSpawns(out, QGet(db.QueryObjectSingle, id, "spawns"), q, (type(nm) == "string" and nm) or label)
+    end
+  end
+end
+
+-- Questie: 제출 NPC(finishedBy) 위치
+local function QuestieTurnIn(q)
+  local db = QDB()
+  if not db then return {} end
+  local out = {}
+  local fb = QGet(db.QueryQuestSingle, q, "finishedBy")
+  if type(fb) == "table" then AddUnits(out, db, fb[1], fb[2], q, "퀘스트 제출 NPC") end
+  return out
+end
+
+-- Questie: 목표(objectives = { 몬스터, 오브젝트, 아이템, ... }) 위치. 아이템은 떨어뜨리는 몬스터·오브젝트로 찾습니다
+local function QuestieGoals(q)
+  local db = QDB()
+  if not db then return {} end
+  local out = {}
+  local o = QGet(db.QueryQuestSingle, q, "objectives")
+  if type(o) ~= "table" then return out end
+  local npcs, objs = {}, {}
+  for _, e in ipairs(type(o[1]) == "table" and o[1] or {}) do npcs[#npcs + 1] = type(e) == "table" and e[1] or nil end
+  for _, e in ipairs(type(o[2]) == "table" and o[2] or {}) do objs[#objs + 1] = type(e) == "table" and e[1] or nil end
+  AddUnits(out, db, npcs, objs, q, "목표")
+  for _, e in ipairs(type(o[3]) == "table" and o[3] or {}) do
+    local item = type(e) == "table" and e[1]
+    if type(item) == "number" then
+      AddUnits(out, db, QGet(db.QueryItemSingle, item, "npcDrops"), QGet(db.QueryItemSingle, item, "objectDrops"), q, "목표")
+    end
+  end
+  return out
+end
+
+-- 게임: 퀘스트가 속한 지도의 퀘스트 위치, 없으면 다음 목적지. 다른 지도에 있어도 찾습니다
+local function GameAnySpot(q, name)
+  if C_QuestLog and C_QuestLog.GetQuestsOnMap then
+    local maps = {}
+    local m = PlayerSpot()
+    if m then maps[#maps + 1] = m end
+    local fn = rawget(_G, "GetQuestUiMapID")
+    if type(fn) == "function" then
+      local ok, qm = pcall(fn, q)
+      if ok and type(qm) == "number" and qm > 0 and not Secret(qm) and qm ~= m then maps[#maps + 1] = qm end
+    end
+    for _, mp in ipairs(maps) do
+      local ok, list = pcall(C_QuestLog.GetQuestsOnMap, mp)
+      if ok and type(list) == "table" then
+        for _, p in ipairs(list) do
+          if p.questID == q and type(p.x) == "number" and type(p.y) == "number" and not Secret(p.x) and not Secret(p.y) then
+            return { map = mp, loc = { "q", q, nil, p.x * 100, p.y * 100, name } }
+          end
+        end
+      end
+    end
+  end
+  if C_QuestLog and C_QuestLog.GetNextWaypoint then
+    local ok, mp, x, y = pcall(C_QuestLog.GetNextWaypoint, q)
+    if ok and type(mp) == "number" and type(x) == "number" and type(y) == "number"
+      and not Secret(mp) and not Secret(x) and not Secret(y) and x > 0 and y > 0 then
+      return { map = mp, loc = { "q", q, nil, x * 100, y * 100, name } }
+    end
+  end
+  return nil
+end
+
+-- 목표가 없는 퀘스트(전달·대화)인지: 게임이 목표 목록을 비워서 주면 그렇다고 봅니다
+local function NoObjectives(q)
+  if not (C_QuestLog and C_QuestLog.GetQuestObjectives) then return false end
+  local ok, objs = pcall(C_QuestLog.GetQuestObjectives, q)
+  return ok and type(objs) == "table" and #objs == 0
+end
+
+-- 제출 NPC 위치: KQuestGuide 자료 → Questie → 게임 순서
+local function TurnInSpot(q)
+  local r = K.Q and K.Q[q]
+  local e = r and K.F and r[K.F.END]
+  local map = type(e) == "table" and K.UiMapOf and K.UiMapOf(e[3])
+  if map and type(e[4]) == "number" and type(e[5]) == "number" then return { map = map, loc = e } end
+  local spots = QuestieTurnIn(q)
+  if #spots > 0 then return Nearest(spots) end
+  return GameAnySpot(q, "퀘스트 제출 위치(게임 정보)")
+end
+
 -- 이 퀘스트로 안내할 단계를 만듭니다. 위치를 모르면 nil과 이유
 local function BuildStep(q)
   if K.LogComplete and K.LogComplete(q) then
-    local r = K.Q and K.Q[q]
-    local e = r and K.F and r[K.F.END]
-    local map = type(e) == "table" and K.UiMapOf and K.UiMapOf(e[3])
-    if map and type(e[4]) == "number" and type(e[5]) == "number" then
-      return { kind = "turnin", key = KEY .. q, loc = e, map = map, quests = { q }, label = "[경로안내] 제출: " .. Title(q) }
+    local s = TurnInSpot(q)
+    if s then
+      return { kind = "turnin", key = KEY .. q, loc = s.loc, map = s.map, quests = { q }, label = "[경로안내] 제출: " .. Title(q) }
     end
     return nil, "제출할 NPC의 위치 정보가 없습니다"
   end
   local spots = DataSpots(q)
   local s = (#spots > 0) and Nearest(spots) or GameSpot(q)
+  if not s then
+    -- (0.29.1) 목표가 없는 전달·대화 퀘스트는 제출 NPC가 목적지입니다
+    if NoObjectives(q) then
+      local t = TurnInSpot(q)
+      if t then
+        return { kind = "turnin", key = KEY .. q, loc = t.loc, map = t.map, quests = { q }, label = "[경로안내] 전달: " .. Title(q) }
+      end
+    end
+    local qs = QuestieGoals(q)
+    s = (#qs > 0) and Nearest(qs) or GameAnySpot(q, "퀘스트 위치(게임 정보)")
+  end
   if not s then return nil, "목표 위치 정보가 없습니다" end
   return { kind = "doing", key = KEY .. q, loc = s.loc, map = s.map, quests = { q }, label = "[경로안내] " .. Title(q) }
 end
