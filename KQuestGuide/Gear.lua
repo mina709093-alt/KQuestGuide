@@ -314,6 +314,7 @@ local function BasicOk(id, level, range)
   if r[F.MIN] and r[F.MIN] > level + range then return false end
   if r[F.MAXLVL] and level > r[F.MAXLVL] then return false end
   if r[F.FLAGS] and math.floor(r[F.FLAGS]) % 2 == 1 then return false end
+  if r.bl and K.Hidden and K.Hidden(id) then return false end -- (0.31.1) 받을 수 없음·닫힌 축제
   if r[F.PARENT] then return false end
   if not K.Bit(r[F.RACES], K.RaceBit()) then return false end
   if not K.Bit(r[F.CLASSES], K.ClassBit()) then return false end

@@ -51,6 +51,7 @@ local function CanEverTake(id)
   if not r then return false end
   if r[F.FLAGS] and math.floor(r[F.FLAGS]) % 2 == 1 then return false end -- 반복 퀘스트
   if (r[F.LVL] or 0) < 10 then return false end                               -- 이벤트성 저레벨 항목 제외
+  if r.bl and KQG.Hidden and KQG.Hidden(id) then return false end -- (0.31.1) 받을 수 없음·닫힌 축제
   if not KQG.Bit(r[F.RACES], KQG.RaceBit()) then return false end
   if not KQG.Bit(r[F.CLASSES], KQG.ClassBit()) then return false end
   local s = r[F.START]

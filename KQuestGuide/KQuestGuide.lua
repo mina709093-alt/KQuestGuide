@@ -275,6 +275,7 @@ local function CanTakeLater(id, level)
   if db.skipped[id] or IsDone(id) then return false end
   if r[F_MAXLVL] and level > r[F_MAXLVL] then return false end
   if r[F_FLAGS] and math.floor(r[F_FLAGS]) % 2 == 1 then return false end
+  if r.bl and KQG.Hidden(id) then return false end -- (0.31.1) BlockData.lua: 받을 수 없음·닫힌 축제
   if not Bit(r[F_RACES], playerRaceBit) then return false end
   if not Bit(r[F_CLASSES], playerClassBit) then return false end
   local s = r[F_START]
@@ -400,6 +401,7 @@ local function Basic(id, level)
   if (r[F_MIN] or 0) > level then return false end
   if r[F_MAXLVL] and level > r[F_MAXLVL] then return false end
   if r[F_FLAGS] and math.floor(r[F_FLAGS]) % 2 == 1 then return false end
+  if r.bl and KQG.Hidden(id) then return false end -- (0.31.1) BlockData.lua: 받을 수 없음·닫힌 축제
   if not Bit(r[F_RACES], playerRaceBit) then return false end
   if not Bit(r[F_CLASSES], playerClassBit) then return false end
   if r[F_EXCL] then
@@ -3020,6 +3022,24 @@ end)
 
 KQG = KQG or {}
 KQG.Q = Q
+-- (0.31.1) 안내 제외 (BlockData.lua가 KQG_DATA[번호].bl 에 붙인 표시)
+--   "x" = 받을 수 없는 퀘스트(게임에 없음·중복·다른 확장팩 전용 등): 안내하지 않음
+--   "e" = 축제 퀘스트: Questie가 "지금 열린 축제 퀘스트"로 본 것만 안내 (Questie가 없으면 안내하지 않음)
+--   이미 퀘스트 목록에 있으면 그대로 안내합니다.
+KQG.EventActive = function(id)
+  local QL = rawget(_G, "QuestieLoader")
+  if type(QL) ~= "table" or type(QL.ImportModule) ~= "function" then return false end
+  local ok, ev = pcall(QL.ImportModule, QL, "QuestieEvent")
+  local act = ok and type(ev) == "table" and ev.activeQuests
+  return type(act) == "table" and act[id] == true
+end
+KQG.Hidden = function(id)
+  local r = Q[id]
+  local b = r and r.bl
+  if not b or inLog[id] then return false end
+  if b == "e" then return not KQG.EventActive(id) end
+  return true
+end
 KQG.F = { NAME = F_NAME, LVL = F_LVL, MIN = F_MIN, RACES = F_RACES, CLASSES = F_CLASSES, PREG = F_PREG, PRES = F_PRES,
   EXCL = F_EXCL, NEXT = F_NEXT, ZONE = F_ZONE, START = F_START, END = F_END, TEXT = F_TEXT, FLAGS = F_FLAGS,
   PARENT = F_PARENT, MAXLVL = F_MAXLVL, BCFOR = F_BCFOR, BCS = F_BCS }
