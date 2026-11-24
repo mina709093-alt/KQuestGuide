@@ -1,4 +1,6 @@
--- KQuestGuide 파티 기능 (1단계): 파티 명단과 같은 애드온 사용 여부, 지역 진행도 공유
+-- KQuestGuide 파티 기능: 파티 명단과 같은 애드온 사용 여부, 지역 진행도 공유, 퀘스트 자동 공유, 파티 퀘스트(공동 계획)
+-- (0.33.0) 공동 계획(PartyMerge), 단계별 필요한 파티원(PartyNeed), 새로 받은 퀘스트 계속 공유, 친구 퀘스트의 선행 안내(PrereqTick),
+-- 다른 지도의 파티원은 빼고 계산, 나눠 보내는 메시지 C(완료 퀘스트)·L(긴 퀘스트 목록)·A(받을 수 있는 퀘스트)
 local KQG = KQG
 if not KQG then return end
 
@@ -26,6 +28,13 @@ local roster = {}          -- 짧은 이름 -> 받은 정보
 local frame
 local lastSent, lastReq = 0, 0
 local zoneCache = {}       -- 지도 -> { total, level }
+-- (0.33.0) 공동 계획
+local SYNC_VER = "1"       -- 새 메시지(C: 완료한 퀘스트, L: 퀘스트 목록, A: 받을 수 있는 퀘스트) 형식 번호. 번호가 다르면 무시합니다
+local MAX_MSG = 250        -- 애드온 메시지는 255바이트까지라 여유를 둡니다
+local shareKnown = nil     -- 공유가 끝난 뒤의 내 퀘스트 목록 (그 뒤에 새로 받은 퀘스트만 공유)
+local shareHinted = {}     -- 자동 공유를 못 해서 "공유하기" 안내를 한 퀘스트
+local prereqTold = {}      -- 선행을 안내한 친구 퀘스트
+local pendList = {}        -- 조각으로 오는 C/L 메시지 임시 보관
 
 local function Print(t)
   if KQG.Print then KQG.Print(t) end
@@ -141,15 +150,71 @@ local function MyIds()
   return table.concat(t, ",")
 end
 
+-- 상태 메시지. 퀘스트 목록이 길어 255바이트를 넘으면 목록을 비워 보내고, 목록은 L 메시지로 나눠 보냅니다(0.33.0)
 local function Encode(st)
-  return table.concat({ "S", st.ver, st.level, st.map, st.log, st.zdone, st.ztotal, MyIds(), (st.pm and (st.syncing and 2 or 1) or 0), st.pq and 1 or 0 }, "|")
+  local function Make(ids)
+    return table.concat({ "S", st.ver, st.level, st.map, st.log, st.zdone, st.ztotal, ids, (st.pm and (st.syncing and 2 or 1) or 0), st.pq and 1 or 0 }, "|")
+  end
+  local msg = Make(MyIds())
+  if #msg > MAX_MSG then return Make(""), true end
+  return msg, false
+end
+
+-- 번호 목록을 30개씩 나눠 보냅니다: "<종류>|<형식 번호>|<조각>|<조각 수>|번호,번호,..." (예전 버전은 모르는 종류라 무시)
+local function SendList(kind, ids)
+  local per = 30
+  local n = math.max(1, math.ceil(#ids / per))
+  for i = 1, n do
+    local part = {}
+    for j = (i - 1) * per + 1, math.min(#ids, i * per) do part[#part + 1] = ids[j] end
+    Send(kind .. "|" .. SYNC_VER .. "|" .. i .. "|" .. n .. "|" .. table.concat(part, ","))
+  end
+end
+
+local function SortedLog(onlyComplete)
+  local t = {}
+  for id in pairs(KQG.LogSet and KQG.LogSet() or {}) do
+    if not onlyComplete or (KQG.LogComplete and KQG.LogComplete(id)) then t[#t + 1] = id end
+  end
+  table.sort(t)
+  return t
 end
 
 local function Broadcast(force)
   local now = GetTime()
   if not force and now - lastSent < 5 then return end
   lastSent = now
-  Send(Encode(MyStatus()))
+  local msg, cut = Encode(MyStatus())
+  Send(msg)
+  if cut then SendList("L", SortedLog(false)) end
+  SendList("C", SortedLog(true))   -- (0.33.0) 완료한(제출만 남은) 퀘스트: "필요:" 표시용
+  -- (0.33.0) 내 계산으로 지금 받을 수 있는 퀘스트(내 수락 단계, 파티원 단계 제외): 친구의 "필요:" 판단용
+  local acc, seen = {}, {}
+  for _, g in ipairs(KQG.StepsRaw and KQG.StepsRaw() or {}) do
+    if g.kind == "accept" and not g.who then
+      for _, q in ipairs(g.quests or {}) do if not seen[q] then seen[q] = true acc[#acc + 1] = q end end
+    end
+  end
+  table.sort(acc)
+  SendList("A", acc)
+end
+
+-- C/L 메시지 받기 (모든 조각이 모이면 반영)
+local function RecvList(sender, msg)
+  local kind, ver, i, n, ids = string.match(msg, "^(%a)|(%d+)|(%d+)|(%d+)|([%d,]*)$")
+  if not kind or ver ~= SYNC_VER then return end   -- 형식이 다른(새) 버전의 메시지는 무시
+  i, n = tonumber(i), tonumber(n)
+  local key = sender .. kind
+  local pe = pendList[key]
+  if i == 1 or not pe or pe.n ~= n then pe = { n = n, parts = {} } pendList[key] = pe end
+  pe.parts[i] = ids
+  for k = 1, n do if pe.parts[k] == nil then return end end
+  pendList[key] = nil
+  local set = {}
+  for k = 1, n do for id in string.gmatch(pe.parts[k], "%d+") do set[tonumber(id)] = true end end
+  local st = roster[sender]
+  if not st then return end
+  if kind == "C" then st.done = set elseif kind == "L" then st.ids = set elseif kind == "A" then st.acc = set end
 end
 
 local function Request()
@@ -234,10 +299,13 @@ local function OwnerName()
   if not (d and d.partyMode) then return nil end
   if not InParty() then return nil end
   if d.partyQuest and lockedOwner then return lockedOwner end
-  if not AllSameMap() then return nil end
+  -- (0.33.0) 다른 지도에 있는 파티원은 빼고 같은 지도의 파티원 중에서 고릅니다 (한 명 때문에 전체가 멈추지 않게)
+  local myMap = CurMap()
+  if not myMap then return nil end
   local best, bf
   for _, m in ipairs(Members()) do
     local st = m.me and MyStatus() or roster[Short(m.name)]
+    if st and not m.me and (GetTime() - st.t >= STALE or st.map ~= myMap) then st = nil end
     if st then
       local nm = Short(m.name)
       local f = Frac(st)
@@ -378,6 +446,8 @@ KQG.PartyFollowSteps = function()
   if not o or o == Short(UnitName("player")) then return nil end
   local t = ownerSteps[o]
   if not t or GetTime() - t.t >= STALE or #t.list == 0 then return nil end
+  local ost = roster[o]
+  if ost and ost.map and ost.map ~= CurMap() then return nil end   -- (0.33.0) 기준이 다른 지역이면 내 계획대로
   local out = {}
   for i, e in ipairs(t.list) do
     local ids = {}
@@ -401,6 +471,75 @@ KQG.PartyFollowSteps = function()
     out[#out + 1] = g
   end
   return out
+end
+
+-- (0.33.0) 공동 계획: 기준 파티원의 단계 순서를 따르되, 같은 퀘스트를 다루는 내 단계가 있으면 내 단계를 쓰고
+-- (내 위치·내 진행 기준), 기준에게 없는 내 단계는 뒤에 그대로 남깁니다. 예전에는 기준 단계로 통째로 바꿨습니다.
+KQG.PartyMerge = function(mine, theirs)
+  mine = mine or {}
+  if not theirs or #theirs == 0 then return mine end
+  local function Overlap(a, b)
+    for _, x in ipairs(a.quests or {}) do
+      for _, y in ipairs(b.quests or {}) do if x == y then return true end end
+    end
+    return false
+  end
+  local out, used = {}, {}
+  for _, tg in ipairs(theirs) do
+    local hit = false
+    for i, mg in ipairs(mine) do
+      if Overlap(mg, tg) then
+        hit = true
+        if not used[i] then used[i] = true out[#out + 1] = mg end
+      end
+    end
+    if not hit then out[#out + 1] = tg end
+  end
+  for i, mg in ipairs(mine) do if not used[i] then out[#out + 1] = mg end end
+  return out
+end
+
+-- (0.33.0) 이 단계가 필요한 파티원 이름 ("상수, 친구1"). 파티 모드가 아니거나 혼자면 nil
+--   제출: 퀘스트를 들고 있고 완료함 / 수행: 들고 있고 아직 완료 안 함
+--   수락: 나는 들고 있지 않고 끝내지 않음, 친구는 그 친구의 받을 수 있는 퀘스트 목록(A 메시지)에 있음
+--   친구의 완료 여부는 C 메시지로 받습니다. 예전 버전 친구는 C·A가 없어 "수행"으로만 보이고 "수락"에는 안 나옵니다.
+KQG.PartyNeed = function(g)
+  local d = KQG.DB()
+  if not (d and d.partyMode and InParty()) or type(g) ~= "table" or g.kind == "travel" then return nil end
+  if type(g.quests) ~= "table" or #g.quests == 0 then return nil end
+  local names, total = {}, 0
+  for _, m in ipairs(Members()) do
+    local set, done, acc
+    if m.me then
+      set = KQG.LogSet and KQG.LogSet() or {}
+    else
+      local st = roster[Short(m.name)]
+      if st and st.ids and GetTime() - st.t < STALE then set, done, acc = st.ids, st.done or {}, st.acc end
+    end
+    if set then
+      total = total + 1
+      local need = false
+      for _, q in ipairs(g.quests) do
+        local comp
+        if m.me then comp = KQG.LogComplete and KQG.LogComplete(q) else comp = done[q] and true or false end
+        if g.kind == "turnin" then
+          if set[q] and comp then need = true end
+        elseif g.kind == "accept" then
+          -- 친구는 그 친구가 보낸 "받을 수 있는 퀘스트"(A)에 있을 때만 (끝낸 퀘스트인지 모르므로 추측하지 않음)
+          if m.me then
+            if not set[q] and not (KQG.IsDone and KQG.IsDone(q)) then need = true end
+          elseif acc and acc[q] then
+            need = true
+          end
+        elseif set[q] and not comp then
+          need = true
+        end
+      end
+      if need then names[#names + 1] = Short(m.name) end
+    end
+  end
+  if total < 2 or #names == 0 then return nil end
+  return table.concat(names, ", ")
 end
 
 local function SendOrder(force)
@@ -587,25 +726,36 @@ end
 
 local function ShareTick()
   local db = KQG.DB()
-  if not db.partyMode or db.partyShare == false then return end
-  if syncState ~= "sharing" then return end   -- 파티 모드를 켠 직후 공유 단계에서만 공유한다
+  if not db.partyMode or db.partyShare == false then shareKnown = nil return end
+  -- 파티 모드를 켠 직후 공유 단계(sharing)에서는 이 지역 퀘스트를 모두, 공유가 끝난 뒤(ready)에는
+  -- 그 뒤에 새로 받은 퀘스트만 공유합니다(0.33.0. 예전에는 공유 단계에서만 공유).
+  if syncState ~= "sharing" and syncState ~= "ready" then shareKnown = nil return end
   if InCombatLockdown and InCombatLockdown() then return end
-  if not AllSameMap() then return end
+  local set = KQG.LogSet()
+  if syncState == "ready" then
+    if not shareKnown then
+      shareKnown = {}
+      for qid in pairs(set) do shareKnown[qid] = true end
+      return
+    end
+  else
+    shareKnown = nil
+  end
   local ms = Members()
+  local map = CurMap()
   local others = {}
   for _, m in ipairs(ms) do
     if not m.me then
       local st = roster[Short(m.name)]
       if not st then return end   -- 애드온이 없는 사람이 파티에 있으면 퀘스트 공유창이 그 사람에게도 가므로 공유하지 않는다
-      if st.ids and GetTime() - st.t < STALE and InRange(m.unit) then
+      -- (0.33.0) 다른 지도에 있는 파티원은 빼고 같은 지도의 가까운 파티원에게만
+      if st.ids and GetTime() - st.t < STALE and st.map == map and InRange(m.unit) then
         others[#others + 1] = st
       end
     end
   end
   if #others == 0 then return end
   local now = GetTime()
-  local map = CurMap()
-  local set = KQG.LogSet()
   for qid in pairs(set) do
     local r = KQG.Q[qid]
     local inZone = true
@@ -613,11 +763,13 @@ local function ShareTick()
       local zm = KQG.UiMapOf(r[KQG.F.ZONE])
       if zm and zm ~= map then inZone = false end
     end
-    if inZone and not (shareTried[qid] and now - shareTried[qid] < 180) then
+    local want = (syncState == "sharing") or not shareKnown[qid]
+    if inZone and want and not (shareTried[qid] and now - shareTried[qid] < 180) then
       local lacking = false
       for _, st in ipairs(others) do
         if not st.ids[qid] then lacking = true end
       end
+      if syncState == "ready" then shareKnown[qid] = true end
       if lacking then
         shareTried[qid] = now
         local ok, why = PushQuest(qid)
@@ -626,8 +778,50 @@ local function ShareTick()
           Print("파티원에게 퀘스트 공유: " .. QuestTitle(qid))
         else
           lastShare = QuestTitle(qid) .. " (" .. tostring(why) .. ")"
+          -- 자동으로 못 하면 직접 공유하도록 한 번 안내합니다
+          if syncState == "ready" and not shareHinted[qid] then
+            shareHinted[qid] = true
+            Print("「" .. QuestTitle(qid) .. "」를 자동으로 공유하지 못했습니다(" .. tostring(why) .. "). 퀘스트 목록에서 이 퀘스트를 고르고 [공유] 버튼을 눌러 주세요.")
+          end
         end
         return  -- 한 번에 하나씩
+      end
+    end
+  end
+end
+
+-- (0.33.0) 친구에게만 있고 나는 선행 퀘스트가 없어 공유받을 수 없는 퀘스트: 선행부터 안내합니다.
+-- 이미 다른 지역 선행 안내(db.planTarget)가 있으면 알림만 하고 목표는 바꾸지 않습니다.
+local function PrereqTick()
+  local d = KQG.DB()
+  if not (d.partyMode and InParty() and KQG.PrereqChain) then return end
+  local map = CurMap()
+  if not map then return end
+  local set = KQG.LogSet and KQG.LogSet() or {}
+  for _, m in ipairs(Members()) do
+    if not m.me then
+      local nm = Short(m.name)
+      local st = roster[nm]
+      if st and st.ids and GetTime() - st.t < STALE and st.map == map then
+        local list = {}
+        for qid in pairs(st.ids) do list[#list + 1] = qid end
+        table.sort(list)
+        for _, qid in ipairs(list) do
+          if not set[qid] and not prereqTold[qid] then
+            local ch = KQG.PrereqChain(qid)
+            if ch then
+              prereqTold[qid] = true
+              Print(nm .. " 님의 「" .. QuestTitle(qid) .. "」는 선행 퀘스트 「" .. QuestTitle(ch[1]) .. "」를 먼저 해야 공유받을 수 있습니다. 선행 퀘스트부터 안내합니다.")
+              if not d.planTarget then
+                local r = KQG.Q[qid]
+                local s = r and r[KQG.F.START]
+                local sm = type(s) == "table" and s[3] and KQG.UiMapOf(s[3])
+                d.planTarget = { qid = qid, map = sm or map }
+                if KQG.Compute then pcall(KQG.Compute) end
+              end
+            end
+          end
+        end
       end
     end
   end
@@ -651,7 +845,6 @@ local function SyncTick0()
       if not m.me and not roster[Short(m.name)] then shareLocked = true syncState = nil return end
     end
     if shareLocked then return end
-    if not AllSameMap() then return end
   end
   if shareLocked then
     -- 공유가 끝난 상태: 누가 파티 모드를 끄면 처음부터 다시 한다
@@ -659,9 +852,9 @@ local function SyncTick0()
     return
   end
   if not AllPM() then syncState = nil return end
-  if not AllSameMap() then return end
   local set = KQG.LogSet and KQG.LogSet() or {}
   local map = CurMap()
+  if not map then return end
   local pend, n = {}, 0
   local function InZone(qid)
     local r = KQG.Q[qid]
@@ -674,12 +867,15 @@ local function SyncTick0()
   for _, m in ipairs(Members()) do
     if not m.me then
       local st = roster[Short(m.name)]
-      if st and st.ids and GetTime() - st.t < STALE then
+      -- (0.33.0) 다른 지도에 있는 파티원은 기다리지 않습니다
+      if st and st.ids and GetTime() - st.t < STALE and st.map == map then
         for qid in pairs(set) do
           if not st.ids[qid] and InZone(qid) and Pushable(qid) then pend[qid] = true end
         end
         for qid in pairs(st.ids) do
-          if not set[qid] and InZone(qid) then pend[qid] = true end
+          -- 내가 이미 끝낸 퀘스트나 선행이 없어 받을 수 없는 퀘스트는 공유를 기다리지 않음 (선행은 PrereqTick이 안내)
+          if not set[qid] and InZone(qid) and not (KQG.IsDone and KQG.IsDone(qid))
+            and not (KQG.PrereqChain and KQG.PrereqChain(qid)) then pend[qid] = true end
         end
       end
     end
@@ -997,7 +1193,7 @@ local function Build()
   note:SetJustifyH("LEFT")
   SetF(note, 11)
   note:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
-  note:SetText("파티 모드 중에는 내 퀘스트 로그의 이 지역 퀘스트를 파티원에게 자동으로 공유해요(없는 사람만, 180초에 한 번씩). 공동 안내(선행 퀘스트 포함)는 다음 단계예요.")
+  note:SetText("파티 모드 중에는 이 지역 퀘스트를 없는 파티원에게 자동으로 공유하고, 같이 하다 새로 받은 퀘스트도 공유해요. 안내 단계 옆 '필요:'는 그 단계가 필요한 파티원이에요. 친구 퀘스트의 선행이 없으면 선행부터 안내해요.")
   f.last = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   f.last:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 52)
   f.last:SetWidth(312)
@@ -1115,6 +1311,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
       if KQG.DB().partyMode then SetPartyQuest(string.sub(a2, 3, 3) == "1", true, Short(string.match(a2, "^Q|%d|(.*)$") or "")) end
     elseif kind == "R" then
       pendingAt = GetTime() + 0.5
+    elseif kind == "C" or kind == "L" or kind == "A" then
+      RecvList(sender, a2)   -- (0.33.0) 완료한 퀘스트, 긴 퀘스트 목록, 받을 수 있는 퀘스트
     end
   elseif event == "GROUP_ROSTER_UPDATE" then
     for name in pairs(roster) do
@@ -1175,6 +1373,8 @@ ev:SetScript("OnUpdate", function(_, el)
     end
     local okY, errY = pcall(SyncTick)
     if not okY and KQG.ReportBug then KQG.ReportBug("파티동기", errY, "") end
+    local okR, errR = pcall(PrereqTick)
+    if not okR and KQG.ReportBug then KQG.ReportBug("파티선행", errR, "") end
     pcall(SendSteps, false)
     local okO, errO = pcall(SendOrder, false)
     if not okO and KQG.ReportBug then KQG.ReportBug("파티순서", errO, "") end

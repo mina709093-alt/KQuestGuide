@@ -1505,8 +1505,15 @@ local function Compute()
           g.dist, g.bearing = d, b
         end
       end
-      steps = fs
+      -- (0.33.0) 공동 계획: 기준 파티원의 순서를 따르되, 기준에게 없는 내 단계도 남김 (Party.lua PartyMerge)
+      steps = KQG.PartyMerge and KQG.PartyMerge(steps, fs) or fs
       planDeferred = {}
+    end
+  end
+  if KQG.PartyNeed then
+    for _, g in ipairs(steps) do
+      local okN, nd = pcall(KQG.PartyNeed, g)
+      g.need = okN and nd or nil
     end
   end
 
@@ -1542,7 +1549,9 @@ local function Coord(loc)
 end
 
 local function StepTitle(g)
-  if g.title then return g.title end
+  -- (0.33.0) 파티 모드: 이 단계가 필요한 파티원 이름 (KQG.PartyNeed가 g.need에 넣음)
+  local need = (g.need and g.need ~= "") and (" |cff4a9fc7필요: " .. g.need .. "|r") or ""
+  if g.title then return g.title .. need end
   local first = Q[g.quests[1]] or { [F_NAME] = QName(g.quests[1]) }
   local more = #g.quests - 1
   local tag
@@ -1556,7 +1565,7 @@ local function StepTitle(g)
   for _, id in ipairs(g.quests) do
     if logElite[id] then t = t .. " |cffe0701f[정예]|r" break end
   end
-  return t
+  return t .. need
 end
 
 -- SPF가 계산한 예상 이동 시간 (첫 단계만, 3초 캐시)
@@ -3123,6 +3132,14 @@ KQG.StepQuestOrder = function()
   return out
 end
 KQG.PlanCommand = PlanCommand
+-- (0.33.0) 파티: 친구에게만 있고 나는 선행이 없어 받을 수 없는 퀘스트의 선행 사슬 (없으면 nil)
+KQG.PrereqChain = function(id)
+  local r = Q[id]
+  if not r or inLog[id] or DoneC(id) or #PrereqUnmet(r) == 0 then return nil end
+  local ch = Backchain(id, UnitLevel("player") or 1, 0)
+  if ch and #ch > 1 then return ch end
+  return nil
+end
 
 -- 비행경로 정보 수집: 비행 조련사 지도를 열 때 발견한 비행경로를 기록합니다. (안내에는 아직 쓰지 않음)
 local taxiFrame = CreateFrame("Frame")
