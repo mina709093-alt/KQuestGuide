@@ -20,6 +20,7 @@
 | 데이터 | 가져온 곳 | 조건 | 들어 있는 파일 |
 |---|---|---|---|
 | 퀘스트·NPC·오브젝트 정보, 퀘스트 연계(선행·다음 퀘스트), 지역 지도 번호, 한글 이름 | [Questie](https://github.com/Questie/Questie) / [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터와 koKR 현지화 데이터를 변환 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `Data.lua`, `Map.lua`, `Objectives.lua` |
+| 빠진 퀘스트 보충(0.31.0): Data.lua에 없던 퀘스트의 정보·연계·시작·완료 위치, 한글 이름·목표 글 | [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터(`QuestieDB_Forever.toc` 메타데이터)와 그 안의 koKR 번역 블록을 변환(2026-11-24). Forever에서 막힌 퀘스트는 [Questie](https://github.com/Questie/Questie) 블랙리스트(`QuestieQuestBlacklist.lua`)를 Forever 조건으로 읽어 뺌. 한글 번역이 없는 퀘스트는 영어 이름에 "(영문)"을 붙임 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `DataForever.lua` |
 | 안내(브레드크럼) 퀘스트 연결: 어떤 퀘스트가 어떤 퀘스트로 안내하는지(퀘스트 번호 두 개만) | [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터(`breadcrumbForQuestId`, `breadcrumbs` 칸)와 Forever 수정 파일을 변환. `KQuestGuide` 퀘스트 데이터에 있는 퀘스트끼리만 남김 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `BreadcrumbData.lua` |
 | 퀘스트 보상 목록 | 만든 경위가 파일에 기록되어 있지 않아 다시 확인하고 있습니다. 확인되는 대로 이 표에 적겠습니다. | 확인 중 | `Rewards.lua` |
 | 게임에서 모은 퀘스트 위치 | 사용자들이 게임 안에서 직접 기록해 보내 준 자료(`/kqg 수집`)를 취합 | 보내 준 분들의 동의 | `FoundData.lua` |

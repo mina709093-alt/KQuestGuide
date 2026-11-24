@@ -1,7 +1,7 @@
 KQuestGuide - 한글 퀘스트 길잡이
 
 이 애드온의 퀘스트/NPC/오브젝트 데이터(Data.lua)와 지역 지도 번호표(Map.lua)는
-(그리고 안내 퀘스트 연결표 BreadcrumbData.lua도)
+(그리고 안내 퀘스트 연결표 BreadcrumbData.lua와 빠진 퀘스트 보충 자료 DataForever.lua도)
 Questie / QuestieDB 프로젝트의 WoW: Forever 데이터에서 변환해 만들었습니다.
   https://github.com/Questie/Questie
   https://github.com/Questie/QuestieDB
