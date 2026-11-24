@@ -5,9 +5,14 @@
 --   * 반경(기본 40야드) 안에 들어올 때 한 번 알리고(소리·채팅), 창은 가까이 있는 동안 계속 떠 있으며 거리가 바뀝니다.
 --     반경의 1.5배 밖으로 멀어지거나, 책을 얻거나, 버튼을 누르면 닫힙니다. 반경의 1.5배 밖으로 나갔다가 다시 들어와야 또 알리고,
 --     같은 지점은 120초 안에 다시 알리지 않습니다.
---   * 알리지 않는 경우: 그 책이 가방·은행에 있음, 수집 완료로 표시한 책, 무시로 표시한 지점, 전투 중(끝나면 다시 확인)
---   * 은행: 은행을 열 때 내용을 저장해 두고, 은행이 닫혀 있을 때도 그 기록으로 판단합니다.
+--   * 알리지 않는 경우: 그 책이 가방·은행에 있음, 반납 퀘스트를 끝냄(quest 칸), 수집 완료로 표시한 책,
+--     Forever에 없을 수 있는 책(doubt 칸), 무시로 표시한 지점, 전투 중(끝나면 다시 확인)
+--   * 가방·은행 확인은 아이템 번호로 합니다(item 칸). C_Item.GetItemCount(번호, true)는 은행을 닫아도 은행까지 셉니다
+--     (2026-11-24 게임에서 확인). 은행을 열 때 저장한 기록도 예비로 씁니다.
 --   * 가방이나 은행에서 한 번 본 책은 자동으로 "수집 완료"가 됩니다(반납해서 책이 사라져도 다시 알리지 않게).
+--   * 책 이름은 게임이 알려 주는 아이템 이름을 먼저 보여 줍니다(처음엔 늦게 올 수 있어 그동안은 book 칸).
+--   * (0.32.0) 예전 표시 유지: "수집 완료"는 책 이름 키("n"..book, "n"..oldBook)도 인정하고,
+--     "무시"는 지역 이름 키("지역 이름:x:y")도 인정합니다.
 -- 저장: KQGDB.book = { off, radius, spots = { 게임에서 기록한 지점 }, chars = { ["이름-서버"] = { done, ignore, bank, bankName, bankTime } } }
 -- 명령: /kqg 책 (도움말: /kqg 책 도움)
 
@@ -82,6 +87,10 @@ local function AllSpots()
       book = Str(row.book) and row.book or nil,
       item = Num(row.item) and row.item or nil,
       itemName = Str(row.itemName) and row.itemName or nil,
+      quest = Num(row.quest) and row.quest or nil,
+      lv60 = row.lv60 == true or nil,
+      oldBook = Str(row.oldBook) and row.oldBook or nil,
+      doubt = Str(row.doubt) and row.doubt or nil,
       memo = Str(row.memo) and row.memo or nil,
       src = src,
       row = row,
@@ -113,8 +122,64 @@ local function BookKey(s)
   return "z" .. tostring(s.map or s.zone) .. ":" .. tostring(s.memo or "")
 end
 
+-- 예전 키도 함께: "무시"는 지역 이름 키, "수집 완료"는 책 이름 키 (0.31 이전 저장 데이터)
+local function SpotKeys(s)
+  local k = SpotKey(s)
+  if not k then return {} end
+  local t = { k }
+  if s.map and s.zone then t[2] = string.format("%s:%.1f:%.1f", s.zone, s.x, s.y) end
+  return t
+end
+
+local function DoneKeys(s)
+  local t = { BookKey(s) }
+  local function add(k) for _, v in ipairs(t) do if v == k then return end end t[#t + 1] = k end
+  if s.book then add("n" .. s.book) end
+  if s.oldBook then add("n" .. s.oldBook) end
+  return t
+end
+
+local function DoneOf(c, s)
+  if not c then return nil end
+  for _, k in ipairs(DoneKeys(s)) do
+    if c.done[k] then return c.done[k] end
+  end
+  return nil
+end
+
+local function Ignored(c, s)
+  if not c then return false end
+  for _, k in ipairs(SpotKeys(s)) do
+    if c.ignore[k] then return true end
+  end
+  return false
+end
+
+-- 게임 아이템 이름 (아래 가방 부분의 ItemName을 씀. 순서 때문에 앞에서 선언만)
+local ItemName
+
 local function BookTitle(s)
-  return s.book or s.itemName or (s.item and ("아이템 " .. s.item)) or "책"
+  local n = s.item and ItemName and ItemName(s.item)
+  return n or s.book or s.itemName or (s.item and ("아이템 " .. s.item)) or "책"
+end
+
+-- 반납 퀘스트를 끝냈는지 (모르면 false)
+local function QuestDone(s)
+  if not (s.quest and C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted) then return false end
+  local ok, r = pcall(C_QuestLog.IsQuestFlaggedCompleted, s.quest)
+  if not ok or Secret(r) then return false end
+  return r == true
+end
+
+local LV60_NPC = "60레벨 책: 반납 NPC가 다릅니다 (스톰윈드 Jennea Cannon, 언더시티 Oran Snakewrithe)"
+
+-- 알림 창·목록에 같이 보일 메모
+local function MemoText(s)
+  local t = {}
+  if s.doubt then t[#t + 1] = s.doubt end
+  if s.memo then t[#t + 1] = s.memo end
+  if s.lv60 then t[#t + 1] = LV60_NPC end
+  return table.concat(t, " ")
 end
 
 local function WhereText(s)
@@ -181,7 +246,7 @@ local function SlotCount(bag, slot)
   return 1
 end
 
-local function ItemName(id)
+ItemName = function(id)
   local f = (C_Item and C_Item.GetItemInfo) or GetItemInfo
   if not f then return nil end
   local ok, n = pcall(f, id)
@@ -277,7 +342,7 @@ local function MarkSeen()
   for _, s in ipairs(AllSpots()) do
     if (s.item or s.itemName or s.book) then
       local key = BookKey(s)
-      if not c.done[key] and Owned(s, c) then
+      if not DoneOf(c, s) and Owned(s, c) then
         c.done[key] = "auto"
         n = n + 1
       end
@@ -286,14 +351,15 @@ local function MarkSeen()
   return n
 end
 
--- 상태: "보유:가방" / "완료" / "무시" / nil(알림 대상)
+-- 상태: "반납 완료" / "보유:가방" / "완료" / "확인 필요" / "무시" / nil(알림 대상)
 local function StateOf(s, c)
   if not c then return nil end
+  if QuestDone(s) then return "반납 완료" end
   local where = Owned(s, c)
   if where then return "보유:" .. where end
-  if c.done[BookKey(s)] then return "완료" end
-  local sk = SpotKey(s)
-  if sk and c.ignore[sk] then return "무시" end
+  if DoneOf(c, s) then return "완료" end
+  if s.doubt then return "확인 필요" end
+  if Ignored(c, s) then return "무시" end
   return nil
 end
 
@@ -376,7 +442,7 @@ local function ShowPopup(s, dist, more, test)
   popup.spot, popup.more, popup.test = s, more, test and true or false
   local line = PopupLine(s, dist, more)
   popup.text:SetText(line)
-  popup.memo:SetText(s.memo or "")
+  popup.memo:SetText(MemoText(s))
   popup:Show()
   if PlaySound then pcall(PlaySound, SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959) end
   popupToken = popupToken + 1
@@ -452,14 +518,19 @@ drv:SetScript("OnUpdate", function(_, el)
   if not ok and K.ReportBug then K.ReportBug("책 알림", err, "") end
 end)
 
-for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED" }) do
+for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED",
+  "GET_ITEM_INFO_RECEIVED" }) do
   pcall(drv.RegisterEvent, drv, e)
 end
 drv:SetScript("OnEvent", function(_, e)
   e = e or event
   pcall(function()
     if not (K.DB and K.DB()) then return end
-    if e == "BANKFRAME_OPENED" then
+    if e == "GET_ITEM_INFO_RECEIVED" then
+      -- 아이템 이름이 늦게 도착함: 가방 이름 목록만 다시 읽게 표시 (자주 오므로 다른 일은 하지 않음)
+      bagDirty = true
+      return
+    elseif e == "BANKFRAME_OPENED" then
       bankOpen = true
       SnapshotBank()
     elseif e == "BANKFRAME_CLOSED" then
@@ -485,6 +556,10 @@ local function RowText(s)
   if s.book then parts[#parts + 1] = string.format("book = %q", s.book) end
   if s.item then parts[#parts + 1] = "item = " .. s.item end
   if s.itemName then parts[#parts + 1] = string.format("itemName = %q", s.itemName) end
+  if s.quest then parts[#parts + 1] = "quest = " .. s.quest end
+  if s.lv60 then parts[#parts + 1] = "lv60 = true" end
+  if s.oldBook then parts[#parts + 1] = string.format("oldBook = %q", s.oldBook) end
+  if s.doubt then parts[#parts + 1] = string.format("doubt = %q", s.doubt) end
   if s.memo then parts[#parts + 1] = string.format("memo = %q", s.memo) end
   return "  { " .. table.concat(parts, ", ") .. " },"
 end
@@ -564,17 +639,29 @@ local function Summary()
   local b, c = Store(), Char()
   local all = AllSpots()
   local withXY, left, seen = 0, 0, {}
+  local q = { n = { done = 0, all = 0 }, lv60 = { done = 0, all = 0 } }
+  local qSeen = {}
   for _, s in ipairs(all) do
     if s.x then withXY = withXY + 1 end
     local key = BookKey(s)
-    if not seen[key] then
+    -- 책 이름이 없는 지점(메모만 적은 지점)과 Forever에 없을 수 있는 책은 남은 책에 세지 않음
+    if not seen[key] and (s.item or s.itemName or s.book) and not s.doubt then
       seen[key] = true
       if not StateOf(s, c) then left = left + 1 end
     end
+    if s.quest and not s.doubt and not qSeen[s.quest] then
+      qSeen[s.quest] = true
+      local g = s.lv60 and q.lv60 or q.n
+      g.all = g.all + 1
+      if QuestDone(s) then g.done = g.done + 1 end
+    end
   end
-  local bank = (c and c.bankTime and c.bankTime > 0 and date) and date("%m-%d %H:%M", c.bankTime) or "없음 (은행을 한 번 열어 주세요)"
+  local bank = (c and c.bankTime and c.bankTime > 0 and date) and date("%m-%d %H:%M", c.bankTime) or "없음"
   Print(string.format("책 알림 %s / 지점 %d곳 (좌표 있음 %d곳) / 남은 책 %d권 / 반경 %d야드 / 은행 기록: %s",
     b.off and "|cffff6060꺼짐|r" or "|cff10d0a0켜짐|r", #all, withXY, left, b.radius, bank))
+  if q.n.all + q.lv60.all > 0 then
+    Print(string.format("반납: %d / %d권, 60레벨 책 %d / %d권", q.n.done, q.n.all, q.lv60.done, q.lv60.all))
+  end
   Print("명령 목록: /kqg 책 도움")
 end
 
@@ -601,6 +688,7 @@ local function List(all)
       if not s.x then st = "좌표 없음" end
       Print(string.format("  %d. %s — %s%s [%s]%s", i, BookTitle(s), WhereText(s),
         d and string.format(" %d야드", d) or "", st, s.src == "user" and " (직접 기록)" or ""))
+      if s.doubt then Print("      " .. s.doubt) end
       shown = shown + 1
     end
   end
@@ -618,9 +706,11 @@ local function Own()
       seen[key] = true
       n = n + 1
       local where = Owned(s, c)
-      local done = c.done[key]
-      Print(string.format("  %s%s — 보유: %s / 완료: %s", BookTitle(s), s.item and (" #" .. s.item) or "",
-        where or "없음", done == "auto" and "예 (가방·은행에서 확인)" or (done and "예 (직접 표시)" or "아니요")))
+      local done = DoneOf(c, s)
+      local turned = s.quest and (QuestDone(s) and " / 반납: 예" or " / 반납: 아니요") or ""
+      Print(string.format("  %s%s — 보유: %s / 완료: %s%s%s", BookTitle(s), s.item and (" #" .. s.item) or "",
+        where or "없음", done == "auto" and "예 (가방·은행에서 확인)" or (done and "예 (직접 표시)" or "아니요"), turned,
+        s.doubt and " / 확인 필요" or ""))
     end
   end
   if n == 0 then Print("이름이나 아이템 번호가 적힌 책이 아직 없습니다. /kqg 책 추가 로 기록하거나 BookData.lua를 채워 주세요.") end
@@ -710,9 +800,8 @@ K.BookCommand = function(arg)
   elseif cmd == "취소" or cmd == "undo" then
     local s = SpotByNum(rest)
     if s then
-      c.done[BookKey(s)] = nil
-      local sk = SpotKey(s)
-      if sk then c.ignore[sk] = nil near[sk] = nil end
+      for _, k in ipairs(DoneKeys(s)) do c.done[k] = nil end
+      for _, k in ipairs(SpotKeys(s)) do c.ignore[k] = nil near[k] = nil end
       Print("「" .. BookTitle(s) .. "」의 완료·무시 표시를 풀었습니다." .. (Owned(s, c) and " (가방·은행에 있어서 알림은 계속 안 뜹니다)" or ""))
     end
   elseif cmd == "보유" or cmd == "own" then
