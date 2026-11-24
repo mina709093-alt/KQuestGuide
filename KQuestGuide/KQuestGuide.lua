@@ -448,6 +448,10 @@ end
 -- (0.29.0) 0.28.0 이후 새로 넣은 안내 값과 함수 모음. 이 파일의 바깥 local은 Lua 5.1 제한(200개)에 거의 닿아 있어서
 -- 새 이름은 local을 늘리지 말고 이 표에 넣습니다.
 local Guide = {}
+-- (0.34.0) 이동 단계 문구: SPF가 있으면 SPF 안내 문구 (Extras.lua의 KQG.TravelHint)
+function Guide.Travel(noSPF)
+  return KQG.TravelHint and KQG.TravelHint(noSPF) or noSPF
+end
 Guide.ACCEPT_ABOVE = 8    -- 퀘스트 레벨이 내 레벨보다 이만큼 넘게 높으면 아직 수락 안내에 넣지 않음
 Guide.HARD_ABOVE = 5      -- 내 레벨보다 이만큼 이상 높으면 어려운 퀘스트(계획에서 뒤로 미루거나 보류)
 
@@ -908,7 +912,7 @@ BuildPlan = function(level, m)
       local tr = MkStep("travel", "TRAVELING_TO_PREREQUISITE_REGION", "ptravel" .. t.qid, { chain[1] }, first.loc)
       tr.chain = { target = t.qid, map = t.map, idx = 0, total = #chain - 1 }
       tr.title = "|cffe0701f[이동]|r " .. MapName(first.map) .. "(으)로 이동 (선행 퀘스트: " .. QName(t.qid) .. ")"
-      tr.where = "교통수단 정보가 없어 직접 이동하세요. 비행경로/배를 추천하지 않습니다."
+      tr.where = Guide.Travel("교통수단 정보가 없어 직접 이동하세요. 비행경로/배를 추천하지 않습니다.")
       Add(tr)
     end
     -- (0.29.0) 선행을 하러 간 지역에서도 미리 받기: 그 지역의 마지막 선행 단계 뒤에 수락 단계를 넣습니다.
@@ -932,7 +936,7 @@ BuildPlan = function(level, m)
         local rt = MkStep("travel", "RETURNING_TO_TARGET_REGION", "pret" .. t.qid, { t.qid }, tl)
         rt.chain = { target = t.qid, map = t.map, idx = -1, total = chain and (#chain - 1) or 0 }
         rt.title = "|cffe0701f[복귀]|r " .. MapName(t.map) .. "(으)로 돌아가 " .. QName(t.qid) .. " 수락"
-        rt.where = "교통수단 정보가 없어 직접 이동하세요."
+        rt.where = Guide.Travel("교통수단 정보가 없어 직접 이동하세요.")
         Add(rt)
       end
     end
@@ -1191,7 +1195,7 @@ BuildPlan = function(level, m)
         local g = MkStep("travel", "MOVING_TO_NEXT_REGION", "region" .. target, { bestq }, Q[bestq][F_START])
         g.title = "|cffe0701f[다음 지역]|r " .. MapName(target) .. "(으)로 이동"
         g.where = "이 지역의 퀘스트를 모두 마쳤습니다." .. (pending > 0 and (" (진행 중 퀘스트 " .. pending .. "개는 다른 지역에서 제출/수행)") or "")
-          .. " 교통수단 정보가 없어 직접 이동하세요."
+          .. " " .. Guide.Travel("교통수단 정보가 없어 직접 이동하세요.")
         Add(g)
       end
     end
@@ -1687,22 +1691,29 @@ local function SPFArrowOn()
   return not (type(d) == "table" and d.arrow == false)
 end
 local KIND_KO = { accept = "수락", turnin = "제출", doing = "수행" }
-local function SPFNavigate(g)
+function Guide.SPFStop(g)
+  local qid = g.quests and g.quests[1]
+  local title = (KIND_KO[g.kind] or "이동") .. ": " .. (qid and QName(qid) or "")
+  if g.loc[6] then title = title .. " - " .. g.loc[6] end
+  local stop = { map = g.map, x = g.loc[4] / 100, y = g.loc[5] / 100, title = title, hold = true }
+  if g.quests and (g.kind == "doing" or g.kind == "turnin") then
+    local ids = {}
+    for _, id in ipairs(g.quests) do if type(id) == "number" and id >= 1 then ids[#ids + 1] = id end end
+    if #ids > 0 then stop.questIDs = ids end
+  end
+  return stop
+end
+-- (0.34.0) 첫 단계 뒤의 단계도 최대 2개 더 보내서 SPF 지도에 다음 목적지 순서를 보여 줍니다.
+-- 모든 지점이 hold라서 SPF가 혼자 다음 지점으로 넘기지 않고, 첫 단계가 바뀌면 KQuestGuide가 다시 보냅니다.
+local function SPFNavigate(g, more)
   local api = SPFApi()
   if not api or not api.NavigateRoute then return false end
   local ok, res = pcall(function()
     -- 다른 애드온이나 사용자의 길찾기가 진행 중이면 덮어쓰지 않습니다.
     if api.Active and api.Active() and not SPFOwned() then return false end
-    local qid = g.quests and g.quests[1]
-    local title = (KIND_KO[g.kind] or "이동") .. ": " .. (qid and QName(qid) or "")
-    if g.loc[6] then title = title .. " - " .. g.loc[6] end
-    local stop = { map = g.map, x = g.loc[4] / 100, y = g.loc[5] / 100, title = title, hold = true }
-    if g.quests and (g.kind == "doing" or g.kind == "turnin") then
-      local ids = {}
-      for _, id in ipairs(g.quests) do if type(id) == "number" and id >= 1 then ids[#ids + 1] = id end end
-      if #ids > 0 then stop.questIDs = ids end
-    end
-    return api.NavigateRoute(SPF_OWNER, { stop })
+    local stops = { Guide.SPFStop(g) }
+    for _, s in ipairs(more or {}) do stops[#stops + 1] = Guide.SPFStop(s) end
+    return api.NavigateRoute(SPF_OWNER, stops)
   end)
   return ok and res == true
 end
@@ -1731,13 +1742,28 @@ local function UpdateArrow()
   local spfOwned = SPFOwned()
   if g and g.map and g.loc then
     local key = tostring(g.map) .. ":" .. tostring(g.loc[4]) .. ":" .. tostring(g.loc[5])
+    -- (0.34.0) SPF에 같이 보낼 다음 단계 (강제 안내 중이면 보내지 않음)
+    local more, mkey = {}, key
+    if not forced and db.spfMulti ~= false then
+      for i = 2, #steps do
+        local s = steps[i]
+        if s.map and s.loc and s.loc[4] and s.loc[5] then
+          more[#more + 1] = s
+          mkey = mkey .. "|" .. tostring(s.map) .. ":" .. tostring(s.loc[4]) .. ":" .. tostring(s.loc[5])
+          if #more >= 2 then break end
+        end
+      end
+    end
     if SPFApi() and db.spf ~= false then
       -- 지역을 넘어가는 동안 SPF 경로가 끊기면 같은 목적지로 다시 건다.
-      if key == spfKey and not spfOwned and GetTime() - zoneChangeAt < 40 then spfKey = nil end
+      if mkey == spfKey and not spfOwned and GetTime() - zoneChangeAt < 40 then spfKey = nil end
       -- Shortest Path Forever가 있으면 길찾기(도보/비행/배/포털)와 미니맵 경로를 그쪽에 맡깁니다.
-      if key ~= spfKey and GetTime() >= spfNext then
-        if SPFNavigate(g) then
-          spfKey = key
+      -- 첫 목적지는 그대로이고 뒤의 단계만 바뀌었으면 SPF 경로를 너무 자주 다시 만들지 않게 15초에 한 번만 보냅니다.
+      local sameFirst = spfKey and (spfKey == key or string.sub(spfKey, 1, #key + 1) == key .. "|")
+      if mkey ~= spfKey and GetTime() >= spfNext and not (sameFirst and GetTime() - (Guide.spfAt or 0) < 15) then
+        if SPFNavigate(g, more) then
+          spfKey = mkey
+          Guide.spfAt = GetTime()
           spfOwned = true
         else
           spfNext = GetTime() + 2
@@ -1948,6 +1974,10 @@ local function Refresh()
     if ct then lines[#lines + 1] = "|cff6bb8d6" .. ct .. "|r" end
     local nl = (g.kind ~= "travel") and NextLine(g) or nil
     if nl then lines[#lines + 1] = "|cff6bb8d6" .. nl .. "|r" end
+    if KQG.ExtraLines then
+      local okX, ex = pcall(KQG.ExtraLines, g)
+      if okX and type(ex) == "table" then for _, l in ipairs(ex) do lines[#lines + 1] = l end end
+    end
     frame.cur3:SetText(db.min and table.concat(brief, "\n") or table.concat(lines, "\n"))
     frame.icon:SetTexture(g.kind == "turnin" and "Interface\\GossipFrame\\ActiveQuestIcon"
       or "Interface\\GossipFrame\\AvailableQuestIcon")
