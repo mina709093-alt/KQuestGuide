@@ -574,7 +574,13 @@ end
 local function InRange(unit)
   if UnitInRange then
     local ok, r, checked = pcall(UnitInRange, unit)
-    if ok and checked and not (issecretvalue and issecretvalue(r)) then return r and true or false end
+    if not ok then return true end
+    -- 거리 값이 비밀값(secret)이면 참/거짓 검사만 해도 오류가 나므로, 검사 전에 먼저 걸러 낸다
+    if issecretvalue then
+      local okS, sec = pcall(function() return issecretvalue(r) or issecretvalue(checked) end)
+      if not okS or sec then return true end
+    end
+    if checked then return r and true or false end
   end
   return true
 end

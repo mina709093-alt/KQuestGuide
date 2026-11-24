@@ -3,7 +3,7 @@
 --
 -- 하는 일: 지금 있는 지역에서 "받을 수 있는 퀘스트"와 "제출할 퀘스트"를 가까운 순서로 보여 주고,
 --          다음 목적지 방향을 화살표로 알려 줍니다. 퀘스트 이름/NPC/지역은 모두 한글입니다.
--- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 기록  /kqg 수집  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg gray chain  /kqg 자동기준  /kqg 미리받기  /kqg 정리  /kqg 책  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
+-- 명령어: /kqg (창 열기/닫기)  /kqg 던전  /kqg 추천  /kqg 기록  /kqg 수집  /kqg skip  /kqg back  /kqg arrow  /kqg waypoint  /kqg gray  /kqg gray chain  /kqg 자동기준  /kqg 미리받기  /kqg 정리  /kqg 책  /kqg minimap  /kqg gear  /kqg plan  /kqg debug
 
 local Q = KQG_DATA or {}
 local MAP = KQG_MAP or {}
@@ -2385,37 +2385,39 @@ LayoutFrame = function()
     end
     f.tlabel:Show()
     f.tlabel:ClearAllPoints()
-    f.tlabel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 116)
+    f.tlabel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 148)
     if f.slider then
       f.slider:Show()
       f.slider:ClearAllPoints()
-      f.slider:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX + 86, 112)
+      f.slider:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX + 86, 144)
     end
   end
   -- 버튼
   f.bNext.label:SetText(db.guideOff and "안내 시작" or "안내 정지")
   f.bNext:ClearAllPoints()
   f.bSkipStep:ClearAllPoints()
-  f.bNext:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, min and 12 or 76)
+  f.bNext:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, min and 12 or 108)
   f.bSkipStep:SetPoint("LEFT", f.bNext, "RIGHT", 6, 0)
   f.bDungeon:ClearAllPoints()
   f.bDungeon:SetPoint("LEFT", f.bSkipStep, "RIGHT", 6, 0)
   if min then f.bDungeon:Hide() else f.bDungeon:Show() end
   if min then
-    f.bSkip:Hide() f.bUndo:Hide() f.bRefresh:Hide() f.bClean:Hide() f.bGear:Hide() f.bParty:Hide()
+    f.bSkip:Hide() f.bUndo:Hide() f.bRefresh:Hide() f.bClean:Hide() f.bGear:Hide() f.bParty:Hide() f.bRecommend:Hide()
   else
-    f.bSkip:Hide() f.bUndo:Show() f.bRefresh:Show() f.bClean:Show() f.bGear:Show() f.bParty:Show()
+    f.bSkip:Hide() f.bUndo:Show() f.bRefresh:Show() f.bClean:Show() f.bGear:Show() f.bParty:Show() f.bRecommend:Show()
     f.bSkip:ClearAllPoints() f.bUndo:ClearAllPoints() f.bGear:ClearAllPoints() f.bParty:ClearAllPoints()
+    f.bRecommend:ClearAllPoints()
+    f.bRecommend:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 12)
     f.bParty:SetPoint("LEFT", f.bGear, "RIGHT", 6, 0)
-    f.bGear:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 12)
-    f.bSkip:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 44)
-    f.bUndo:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 44)
+    f.bGear:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 44)
+    f.bSkip:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 76)
+    f.bUndo:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PADX, 76)
     f.bRefresh:ClearAllPoints()
     f.bRefresh:SetPoint("LEFT", f.bUndo, "RIGHT", 6, 0)
     f.bClean:ClearAllPoints()
     f.bClean:SetPoint("LEFT", f.bRefresh, "RIGHT", 6, 0)
   end
-  f:SetHeight(-y + 14 + (min and 36 or 136))
+  f:SetHeight(-y + 14 + (min and 36 or 168))
 end
 
 local reportFrame
@@ -2779,6 +2781,8 @@ local function BuildFrame()
   f.bClean = FlatButton(f, "퀘스트 정리", 96, false, function() if KQG and KQG.CleanupOpen then KQG.CleanupOpen() end end)
   f.bGear = FlatButton(f, "추천 장비 습득 퀘스트", 200, false, function() if KQG and KQG.ToggleGear then KQG.ToggleGear() end end)
   f.bParty = FlatButton(f, "파티", 106, false, function() if KQG and KQG.ToggleParty then KQG.ToggleParty() end end)
+  -- (0.30.0) 추천 퀘스트 관리 창 (Recommend.lua)
+  f.bRecommend = FlatButton(f, "추천 퀘스트 관리", CW, false, function() if KQG and KQG.RecommendToggle then KQG.RecommendToggle() end end)
   do
     local pb = f.bParty
     Solid(pb.bg, 0.18, 0.64, 0.42, 1)
@@ -3201,6 +3205,8 @@ SlashCmdList["KQG"] = function(msg)
     if KQG.PartyCommand then KQG.PartyCommand() end
   elseif msg == "던전" or msg == "dungeon" or string.sub(msg, 1, 7) == "dungeon" then
     if KQG.DungeonCommand then KQG.DungeonCommand(msg:match("^%S+%s+(.*)$") or "") end
+  elseif msg == "추천" or msg == "recommend" then
+    if KQG.RecommendToggle then KQG.RecommendToggle() end
   elseif msg == "기록" or msg == "journal" then
     if KQG.JournalCommand then KQG.JournalCommand() end
   elseif msg == "수집" or msg == "found" then
