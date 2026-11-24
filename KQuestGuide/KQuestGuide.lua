@@ -1388,65 +1388,69 @@ local function Compute()
     end
   end
 
-  -- 3) 받을 수 있는 퀘스트: 레벨링 지역 + 현재 지역
-  local pool = {}
-  if m then table.insert(pool, m) end
-  local hubs = {}
-  for _, mp in ipairs(pool) do
-    for _, id in ipairs(byMap[mp] or {}) do
-      if Avail(id, level) then
-        local r = Q[id]
-        local s = r[F_START]
-        local key = "a" .. s[1] .. s[2]
-        local g = hubs[key]
-        if not g then
-          g = { kind = "accept", key = key, loc = s, map = mp, quests = {} }
-          hubs[key] = g
-          table.insert(steps, g)
+  -- (0.34.4) 3)·4)는 계획(BuildPlan)이 비었을 때만 쓰는 예전 점수 목록입니다. 계획이 있으면 버려지므로
+  -- 미리 만들지 않고, BuildPlan 뒤에 계획이 비었을 때만 만듭니다(결과는 예전과 같음).
+  local function ScoreList()
+    -- 3) 받을 수 있는 퀘스트: 레벨링 지역 + 현재 지역
+    local pool = {}
+    if m then table.insert(pool, m) end
+    local hubs = {}
+    for _, mp in ipairs(pool) do
+      for _, id in ipairs(byMap[mp] or {}) do
+        if Avail(id, level) then
+          local r = Q[id]
+          local s = r[F_START]
+          local key = "a" .. s[1] .. s[2]
+          local g = hubs[key]
+          if not g then
+            g = { kind = "accept", key = key, loc = s, map = mp, quests = {} }
+            hubs[key] = g
+            table.insert(steps, g)
+          end
+          table.insert(g.quests, id)
         end
-        table.insert(g.quests, id)
       end
     end
-  end
 
-  -- 4) 점수 계산
-  for _, g in ipairs(steps) do
-    local d, b = Measure(g.map, g.loc[4], g.loc[5])
-    g.dist, g.bearing = d, b
-    local bestFit, bestChain, bestTier = 0, 0, 4
-    for _, id in ipairs(g.quests) do
-      local r = Q[id]
-      local f = Fit(r[F_LVL], level)
-      if f > bestFit then bestFit = f end
-      local cb = ChainBonus(id, level)
-      if cb > bestChain then bestChain = cb end
-      -- 추천 우선순위: 2=새로 받을 적정 레벨 퀘스트, 3=이어지는 체인(선행을 마친 후속), 4=그 밖의 연계 퀘스트
-      local hasPre = (r[F_PREG] and #r[F_PREG] > 0) or (r[F_PRES] and #r[F_PRES] > 0)
-      local tier = 4
-      if f >= 0.5 then tier = hasPre and 3 or 2 end
-      if tier < bestTier then bestTier = tier end
+    -- 4) 점수 계산
+    for _, g in ipairs(steps) do
+      local d, b = Measure(g.map, g.loc[4], g.loc[5])
+      g.dist, g.bearing = d, b
+      local bestFit, bestChain, bestTier = 0, 0, 4
+      for _, id in ipairs(g.quests) do
+        local r = Q[id]
+        local f = Fit(r[F_LVL], level)
+        if f > bestFit then bestFit = f end
+        local cb = ChainBonus(id, level)
+        if cb > bestChain then bestChain = cb end
+        -- 추천 우선순위: 2=새로 받을 적정 레벨 퀘스트, 3=이어지는 체인(선행을 마친 후속), 4=그 밖의 연계 퀘스트
+        local hasPre = (r[F_PREG] and #r[F_PREG] > 0) or (r[F_PRES] and #r[F_PRES] > 0)
+        local tier = 4
+        if f >= 0.5 then tier = hasPre and 3 or 2 end
+        if tier < bestTier then bestTier = tier end
+      end
+      g.fit, g.chain, g.tier = bestFit, bestChain, bestTier
+      local near = (d and d <= 120 and bestFit >= 0.5) and true or false
+      if g.kind == "turnin" then
+        g.score = 400                                  -- 1순위: 이미 받은 퀘스트 완료
+      elseif g.kind == "doing" then
+        g.score = 300 + 50 * bestFit                   -- 1순위: 이미 받은 퀘스트 진행
+      else
+        local base = (bestTier == 2) and 200 or (bestTier == 3) and 150 or 80
+        g.score = base + 20 * bestFit + 10 * bestChain + (near and 30 or 0)
+      end
+      if d then g.score = g.score - math.min(d, 3000) / 100 end
+      table.sort(g.quests, function(a, b2)
+        local la, lb = Q[a][F_LVL] or 0, Q[b2][F_LVL] or 0
+        if la ~= lb then return la < lb end
+        return a < b2
+      end)
     end
-    g.fit, g.chain, g.tier = bestFit, bestChain, bestTier
-    local near = (d and d <= 120 and bestFit >= 0.5) and true or false
-    if g.kind == "turnin" then
-      g.score = 400                                  -- 1순위: 이미 받은 퀘스트 완료
-    elseif g.kind == "doing" then
-      g.score = 300 + 50 * bestFit                   -- 1순위: 이미 받은 퀘스트 진행
-    else
-      local base = (bestTier == 2) and 200 or (bestTier == 3) and 150 or 80
-      g.score = base + 20 * bestFit + 10 * bestChain + (near and 30 or 0)
-    end
-    if d then g.score = g.score - math.min(d, 3000) / 100 end
-    table.sort(g.quests, function(a, b2)
-      local la, lb = Q[a][F_LVL] or 0, Q[b2][F_LVL] or 0
-      if la ~= lb then return la < lb end
-      return a < b2
+    table.sort(steps, function(a, b)
+      if a.score ~= b.score then return a.score > b.score end
+      return a.key < b.key
     end)
   end
-  table.sort(steps, function(a, b)
-    if a.score ~= b.score then return a.score > b.score end
-    return a.key < b.key
-  end)
 
   -- 5) 잠긴 퀘스트: 선행이 필요한 퀘스트의 시작점 안내 (다른 지역 포함)
   local seenStart = {}
@@ -1497,7 +1501,9 @@ local function Compute()
     Guide.prepickZones = zones   -- (0.29.0) 선행을 하러 간 지역의 미리 받기에도 씀(BuildPlan)
     Guide.prepick = Guide.FindPrepick(level, m, zones)
   end
+  local early = steps
   BuildPlan(level, m)
+  if steps == early then ScoreList() end
   -- 이번에 이동을 추천한 지역 (파티원 단계로 바꾸기 전, 내 계산 기준)
   Guide.autoTargets = Guide.CollectAutoTargets(steps, planMode, levelZone, suggestions)
   if KQG.PartyFollowSteps then

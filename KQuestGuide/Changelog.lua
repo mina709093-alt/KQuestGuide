@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.34.4",
+    "안내 계산 정리: 안내 계획이 있을 때는 쓰지 않던 예전 방식 목록을 미리 만들지 않습니다. 안내 결과는 그대로이고 계산이 조금 가벼워집니다.",
+  },
   { ver = "0.34.3",
     "파티 창: 아래쪽의 상태 글(파티 모드 정상 실행, 최근 공유)과 설명 글이 겹쳐 보이던 문제를 고쳤습니다. 글이 길면 창이 그만큼 길어집니다.",
   },
