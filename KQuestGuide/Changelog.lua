@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.34.1",
+    "11월 24일 취합 데이터 반영: 퀘스트 43→67, 시작 위치 +10, 제출 위치 +17, 목표 위치 +17",
+  },
   { ver = "0.34.0",
     "안내 창: 지금 가는 목적지에서 80야드 안에 다른 퀘스트의 할 일(수락·수행·제출)이 있으면 '근처에서 같이 할 일'로 거리와 함께 최대 3개 보여 줍니다.",
     "[다음 지역] 안내: 이 지역을 떠나기 전에 진행 중인 퀘스트를 제출할 지역별로 묶어 보여 줍니다(완료한 퀘스트가 많은 지역 먼저).",
