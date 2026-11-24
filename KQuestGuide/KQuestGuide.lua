@@ -1520,6 +1520,26 @@ local function Compute()
       planDeferred = {}
     end
   end
+  -- (0.34.5) 이미 받았거나 끝낸 퀘스트는 수락 단계에서 뺍니다. 공유로 받았거나(수락 창을 거치지 않음),
+  -- 파티 기준 파티원의 단계가 늦게 왔을 때 받은 퀘스트를 계속 "수락"으로 안내하던 문제.
+  do
+    local kept = {}
+    for _, g in ipairs(steps) do
+      if g.kind == "accept" and type(g.quests) == "table" then
+        local left = {}
+        for _, id in ipairs(g.quests) do
+          if not inLog[id] and not DoneC(id) then left[#left + 1] = id end
+        end
+        if #left > 0 then
+          if #left < #g.quests then g.quests = left end
+          kept[#kept + 1] = g
+        end
+      else
+        kept[#kept + 1] = g
+      end
+    end
+    steps = kept
+  end
   if KQG.PartyNeed then
     for _, g in ipairs(steps) do
       local okN, nd = pcall(KQG.PartyNeed, g)
@@ -1740,9 +1760,15 @@ local function UpdateArrow()
     arrow:Hide()
     return
   end
-  if forced and forced.key and string.sub(forced.key, 1, 4) == "preq" and forced.quests[1]
-    and (inLog[forced.quests[1]] or DoneC(forced.quests[1])) then
-    forced = nil
+  -- (0.34.5) 수락하러 가는 지정 목적지(선행·장비·던전·추천 퀘스트)는 그 퀘스트를 받았거나 끝냈으면 풉니다.
+  -- 예전에는 선행(preq)만 풀어서, 공유로 받은 퀘스트도 계속 수락 지점으로 안내했습니다.
+  if forced and forced.quests and forced.quests[1]
+    and (forced.kind == "accept" or (forced.key and string.sub(forced.key, 1, 4) == "preq")) then
+    local all = true
+    for _, id in ipairs(forced.quests) do
+      if not (inLog[id] or DoneC(id)) then all = false break end
+    end
+    if all then forced = nil end
   end
   local g = forced or steps[1]
   local spfOwned = SPFOwned()
@@ -2815,6 +2841,7 @@ local function BuildFrame()
 
   f.bNext = FlatButton(f, "안내 정지", 96, true, function()
     db.guideOff = not db.guideOff
+    db.guideOn = not db.guideOff   -- (0.34.5) 다음 접속 때도 이 상태로 시작
     if not db.guideOff then spfKey, lastWpKey = nil, nil spfNext = 0 end
     dirty = true
     UpdateArrow()
@@ -2994,8 +3021,10 @@ ev:SetScript("OnEvent", function(_, e)
     KQGDB = KQGDB or {}
     db = KQGDB
     db.skipped = db.skipped or {}
-    -- 접속할 때마다 안내 정지, 파티 모드 꺼짐으로 시작
-    db.guideOff = true
+    -- 파티 모드는 접속할 때마다 꺼짐으로 시작합니다.
+    -- (0.34.5) 안내는 마지막으로 [안내 시작]/[안내 정지] 버튼을 누른 상태를 기억합니다(db.guideOn, 없으면 정지).
+    -- 파티 모드·경로안내가 잠깐 켠 안내는 기억하지 않습니다.
+    db.guideOff = not db.guideOn
     db.partyMode = false
     db.partyQuest = false
     if db.arrow == nil then db.arrow = true end
