@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.34.2",
+    "파티 모드: 시작할 때 퀘스트 목록 전체를 공유하던 문제를 고쳤습니다. 이제 지금 지역에서 할 퀘스트(안내 중인 퀘스트, 이 지역 퀘스트, 목표나 제출 NPC가 이 지역에 있는 퀘스트, 게임 지도에 이 지역으로 표시되는 퀘스트)만 공유하고 기다립니다. 어느 지역 퀘스트인지 알 수 없으면 공유하지 않습니다.",
+  },
   { ver = "0.34.1",
     "11월 24일 취합 데이터 반영: 퀘스트 43→67, 시작 위치 +10, 제출 위치 +17, 목표 위치 +17",
   },

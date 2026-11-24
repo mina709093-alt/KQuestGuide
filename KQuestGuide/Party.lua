@@ -724,6 +724,46 @@ local function InRange(unit)
   return true
 end
 
+-- (0.34.2) 이 지역에서 할 퀘스트인지. 지금 안내 단계에 있거나, 퀘스트 지역·목표 위치·제출 NPC가 이 지도에 있거나,
+-- 게임이 이 지도에 표시하는 퀘스트일 때만 그렇다고 봅니다. 알 수 없으면 공유하지 않습니다
+-- (0.34.1까지는 알 수 없는 퀘스트도 공유해서, 파티 모드를 켜면 목록 전체를 공유했습니다).
+local function HereCheck(map)
+  local plan, onMap = {}, {}
+  for _, g in ipairs(KQG.Steps and KQG.Steps() or {}) do
+    if g.map == map and not g.who then
+      for _, q in ipairs(g.quests or {}) do plan[q] = true end
+    end
+  end
+  if map and C_QuestLog and C_QuestLog.GetQuestsOnMap then
+    local ok, list = pcall(C_QuestLog.GetQuestsOnMap, map)
+    if ok and type(list) == "table" then
+      for _, p in ipairs(list) do
+        local q = type(p) == "table" and p.questID
+        if type(q) == "number" and not (issecretvalue and issecretvalue(q)) then onMap[q] = true end
+      end
+    end
+  end
+  local obj = rawget(_G, "KQG_OBJ")
+  return function(qid)
+    if not map then return false end
+    if plan[qid] or onMap[qid] then return true end
+    local r = KQG.Q[qid]
+    if r then
+      local z = r[KQG.F.ZONE]
+      if z and KQG.UiMapOf(z) == map then return true end
+      local e = r[KQG.F.END]
+      if e and e[3] and KQG.UiMapOf(e[3]) == map then return true end
+    end
+    local rows = type(obj) == "table" and obj[qid]
+    if type(rows) == "table" then
+      for _, o in ipairs(rows) do
+        if o[3] and KQG.UiMapOf(o[3]) == map then return true end
+      end
+    end
+    return false
+  end
+end
+
 local function ShareTick()
   local db = KQG.DB()
   if not db.partyMode or db.partyShare == false then shareKnown = nil return end
@@ -756,13 +796,9 @@ local function ShareTick()
   end
   if #others == 0 then return end
   local now = GetTime()
+  local Here = HereCheck(map)
   for qid in pairs(set) do
-    local r = KQG.Q[qid]
-    local inZone = true
-    if r and r[KQG.F.ZONE] and map then
-      local zm = KQG.UiMapOf(r[KQG.F.ZONE])
-      if zm and zm ~= map then inZone = false end
-    end
+    local inZone = Here(qid)
     local want = (syncState == "sharing") or not shareKnown[qid]
     if inZone and want and not (shareTried[qid] and now - shareTried[qid] < 180) then
       local lacking = false
@@ -856,14 +892,7 @@ local function SyncTick0()
   local map = CurMap()
   if not map then return end
   local pend, n = {}, 0
-  local function InZone(qid)
-    local r = KQG.Q[qid]
-    if r and r[KQG.F.ZONE] and map then
-      local zm = KQG.UiMapOf(r[KQG.F.ZONE])
-      if zm and zm ~= map then return false end
-    end
-    return true
-  end
+  local InZone = HereCheck(map)
   for _, m in ipairs(Members()) do
     if not m.me then
       local st = roster[Short(m.name)]
