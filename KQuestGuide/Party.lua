@@ -645,6 +645,11 @@ local function Refresh()
   frame.sameOk = same
   frame.last:SetText((on and not AllPM() and "|cffe6c229모든 파티원이 파티 모드를 켜면 퀘스트 공유가 시작되고, 끝나면 파티 퀘스트를 시작할 수 있습니다.|r\n" or "") .. (syncState == "sharing" and "|cffe0701f퀘스트 공유 진행 중 (" .. syncCount .. "개 남음)|r\n" or (syncState == "ready" and "|cff2fa26a파티 모드 정상 실행|r\n" or "")) .. "최근 공유: " .. lastShare .. (same and "" or ("\n|cffe6c229공유 대기: " .. tostring(why) .. "|r")))
   if frame.tShare and frame.tShare.refresh then frame.tShare.refresh() end
+  -- (0.34.3) 상태 글과 설명 글이 파티원 목록과 겹치지 않게 창 높이를 늘립니다(목록 아래 끝 374)
+  pcall(function()
+    local need = 374 + 10 + frame.last:GetStringHeight() + 8 + frame.note:GetStringHeight() + 12
+    frame:SetHeight(math.max(434, math.floor(need + 0.5)))
+  end)
   frame.btn.label:SetTextColor(1, 1, 1)
   for i = 1, ROWS do
     local row = frame.rows[i]
@@ -1224,7 +1229,9 @@ local function Build()
   note:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
   note:SetText("파티 모드 중에는 이 지역 퀘스트를 없는 파티원에게 자동으로 공유하고, 같이 하다 새로 받은 퀘스트도 공유해요. 안내 단계 옆 '필요:'는 그 단계가 필요한 파티원이에요. 친구 퀘스트의 선행이 없으면 선행부터 안내해요.")
   f.last = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  f.last:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 52)
+  f.note = note
+  -- (0.34.3) 아래 설명 글 바로 위에 붙입니다(예전에는 바닥에서 52 위에 고정이라 설명이 길어지면 글씨가 겹쳤음)
+  f.last:SetPoint("BOTTOMLEFT", note, "TOPLEFT", 0, 8)
   f.last:SetWidth(312)
   f.last:SetJustifyH("LEFT")
   SetF(f.last, 11)
