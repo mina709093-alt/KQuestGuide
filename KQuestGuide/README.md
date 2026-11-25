@@ -23,6 +23,7 @@
 | 빠진 퀘스트 보충(0.31.0): Data.lua에 없던 퀘스트의 정보·연계·시작·완료 위치, 한글 이름·목표 글 | [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터(`QuestieDB_Forever.toc` 메타데이터)와 그 안의 koKR 번역 블록을 변환(2026-11-24). Forever에서 막힌 퀘스트는 [Questie](https://github.com/Questie/Questie) 블랙리스트(`QuestieQuestBlacklist.lua`)를 Forever 조건으로 읽어 뺌. 한글 번역이 없는 퀘스트는 영어 이름에 "(영문)"을 붙임 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `DataForever.lua` |
 | 안내 제외 목록(0.31.1): Forever에서 받을 수 없는 퀘스트와 축제 퀘스트 번호 | [Questie](https://github.com/Questie/Questie) 블랙리스트(`QuestieQuestBlacklist.lua`)를 Forever 조건으로 읽은 결과와 축제 자료(`Database/Corrections/Holidays/quests`)를 변환(퀘스트 번호와 구분만). 축제가 열렸는지는 실행 중 설치된 Questie의 판단(`QuestieEvent.activeQuests`)을 읽기만 함 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `BlockData.lua` |
 | 안내(브레드크럼) 퀘스트 연결: 어떤 퀘스트가 어떤 퀘스트로 안내하는지(퀘스트 번호 두 개만) | [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터(`breadcrumbForQuestId`, `breadcrumbs` 칸)와 Forever 수정 파일을 변환. `KQuestGuide` 퀘스트 데이터에 있는 퀘스트끼리만 남김 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `BreadcrumbData.lua` |
+| 필요 없는 퀘스트 아이템 판정(0.35.0): 아이템 번호별로 그 아이템을 쓰는·보상으로 주는·시작하는 퀘스트 번호 | [QuestieDB](https://github.com/Questie/QuestieDB)의 WoW: Forever 데이터(`QuestieDB_Forever.toc` 메타데이터)에서 번호만 옮김(2026-11-25). 아이템의 시작 퀘스트·보상 퀘스트 칸과 퀘스트의 목표 아이템·시작 때 받는 아이템·필요 아이템 칸을 읽음. 받을 수 없는 퀘스트는 [Questie](https://github.com/Questie/Questie) 블랙리스트를 Forever 조건으로 읽어 표시. 화면의 "연결된 퀘스트 자료가 없습니다" 줄에 "(Questie)"를 붙임 | GPLv3 (`LICENSE-GPL3.md`, `NOTICE.txt`) | `QuestItemData.lua` |
 | 퀘스트 보상 목록 | 만든 경위가 파일에 기록되어 있지 않아 다시 확인하고 있습니다. 확인되는 대로 이 표에 적겠습니다. | 확인 중 | `Rewards.lua` |
 | 게임에서 모은 퀘스트 위치 | 사용자들이 게임 안에서 직접 기록해 보내 준 자료(`/kqg 수집`)를 취합 | 보내 준 분들의 동의 | `FoundData.lua` |
 | 퀘스트 정리 판정 (실시간) | 설치된 Questie 애드온의 데이터베이스를 읽기만 함. `KQuestGuide` 데이터에 없는 퀘스트일 때만 사용 | GPLv3 | `Cleanup.lua` |
@@ -36,6 +37,7 @@
 | 책 반납 퀘스트의 반납 장소, 줍는 요령 메모 | 유튜브 영상 [「[와우 포에버] 책 반납 퀘스트 목걸이 반지 얻기」](https://youtu.be/cKsdx2ydH6Y) (시후XIHUGAME, 2026-09-28)의 챕터 제목·자막·고정 댓글에서 사실 정보만 옮김 | 공개 영상의 사실 정보, 출처 표기 | `BookData.lua` |
 | 길 안내 (선택) | 설치된 Shortest Path Forever 애드온의 공개 API를 읽기만 함 | 해당 애드온 조건 | `KQuestGuide.lua`, `Route.lua` |
 | 퀘스트 메뉴 연동 (선택) | 설치된 DaylightUI 애드온의 공개 API로 메뉴 항목만 추가 | 해당 애드온 조건 | `DaylightBridge.lua` |
+| DaylightUI 가방 칸 표시 (선택, 0.35.0) | 설치된 DaylightUI 애드온의 공개 API(`Frames("bagslot")`, `Attach`)로 가방·은행 칸 위에 빨간 표시만 얹음. DaylightUI 코드는 가져오지 않음 | 해당 애드온 조건 | `QuestItems.lua` |
 | 글꼴 | 마루부리(MaruBuri), 네이버 배포 | SIL OFL 1.1로 알려져 있음 | `fonts/` |
 
 ### 데이터를 어떻게 확인하는지
