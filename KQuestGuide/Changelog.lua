@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.35.1",
+    "11월 25일 취합 데이터 반영: 퀘스트 67→75, 시작 위치 +1, 제출 위치 +1, 목표 위치 +11",
+  },
   { ver = "0.35.0",
     "필요 없는 퀘스트 아이템 빨간 표시를 아이템 번호로 판단합니다. QuestieDB 포에버 자료에서 아이템 4,034개의 '쓰는 퀘스트·보상 퀘스트·시작 퀘스트'를 뽑아 넣었습니다(QuestItemData.lua). 예전에는 목표 자료에 이름이 있는 아이템만 판단했습니다.",
     "쓰는 퀘스트를 모두 끝냈거나 받을 수 없는 퀘스트(다른 종족·직업·진영, 받을 수 없는 퀘스트, 같이 할 수 없는 퀘스트를 이미 끝냄)에만 쓰이면 빨갛게 표시합니다.",
