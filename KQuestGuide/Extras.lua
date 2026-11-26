@@ -171,3 +171,68 @@ function K.TravelHint(noSPF)
   if HasSPF() then return "Shortest Path Forever가 비행경로·배·귀환석을 포함한 길을 안내합니다." end
   return noSPF
 end
+
+-- (0.35.3) 완료 가능 퀘스트: 퀘스트 목록에서 목표를 다 채운 퀘스트를 제출 지역별로 묶습니다.
+--   반환: { { map=, name=, items = { { qid=, next=다음 퀘스트(연계일 때), npc=제출 NPC 이름 }, ... } }, ... }
+--   순서: 지금 있는 지역 → 퀘스트가 많은 지역 → 지역 이름 순, 제출 위치를 모르는 퀘스트는 맨 뒤.
+--   [연계]: 우리 자료의 다음 퀘스트(F.NEXT)가 있고 내 종족·직업이 받을 수 있으며 아직 안 한 것. 없으면 [종료].
+local spotCache = {}   -- [퀘스트] = { map, npc } 또는 false(못 찾음) / 못 찾은 것은 30초 뒤 다시
+local spotMiss = {}
+local function ReadySpot(qid)
+  local c = spotCache[qid]
+  if c then return c end
+  if c == false and GetTime() - (spotMiss[qid] or 0) < 30 then return nil end
+  local s = K.TurnInSpot and K.TurnInSpot(qid)
+  if s and s.map then
+    c = { map = s.map, npc = s.loc and s.loc[6] }
+    spotCache[qid] = c
+    return c
+  end
+  spotCache[qid], spotMiss[qid] = false, GetTime()
+  return nil
+end
+
+local function NextOf(qid)
+  local Q, F = K.Q, K.F
+  local nx = K.NextChain and K.NextChain(qid)[1]
+  local r = nx and Q[nx]
+  if r and K.Bit(r[F.RACES], K.RaceBit()) and K.Bit(r[F.CLASSES], K.ClassBit())
+    and not (K.IsDone and K.IsDone(nx)) then
+    return nx
+  end
+  return nil
+end
+
+function K.ReadyList()
+  local log = K.LogSet and K.LogSet() or {}
+  local here
+  if C_Map and C_Map.GetBestMapForUnit then
+    local ok, m = pcall(C_Map.GetBestMapForUnit, "player")
+    if ok then here = Plain(m) end
+  end
+  local byMap, order = {}, {}
+  for qid in pairs(log) do
+    if K.LogComplete(qid) then
+      local s = ReadySpot(qid)
+      local key = s and s.map or 0
+      local gr = byMap[key]
+      if not gr then
+        gr = { map = s and s.map or nil, name = s and K.MapName(s.map) or "제출 위치 모름", items = {} }
+        byMap[key] = gr
+        order[#order + 1] = gr
+      end
+      gr.items[#gr.items + 1] = { qid = qid, next = NextOf(qid), npc = s and s.npc }
+    end
+  end
+  table.sort(order, function(a, b)
+    local ra = (a.map == nil) and 2 or ((here and a.map == here) and 0 or 1)
+    local rb = (b.map == nil) and 2 or ((here and b.map == here) and 0 or 1)
+    if ra ~= rb then return ra < rb end
+    if #a.items ~= #b.items then return #a.items > #b.items end
+    return a.name < b.name
+  end)
+  for _, gr in ipairs(order) do
+    table.sort(gr.items, function(a, b) return a.qid < b.qid end)
+  end
+  return order
+end

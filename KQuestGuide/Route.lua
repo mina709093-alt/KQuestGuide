@@ -277,6 +277,12 @@ local function BuildStep(q)
 end
 
 -- 안내할 수 있는 퀘스트인지 (메뉴에 항목을 보일지 정할 때)
+-- (0.35.3) 제출 위치 (Extras.lua 완료 가능 목록이 지역을 나눌 때 씀)
+K.TurnInSpot = function(q)
+  local ok, s = pcall(TurnInSpot, q)
+  return ok and s or nil
+end
+
 K.CanRoute = function(q)
   if type(q) ~= "number" or Secret(q) or q <= 0 then return false end
   local ok, g = pcall(BuildStep, q)

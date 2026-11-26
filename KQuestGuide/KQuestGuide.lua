@@ -2034,6 +2034,38 @@ local function Refresh()
       frame.cur3:SetText("")
     end
   end
+  -- (0.35.3) 완료 가능 퀘스트: 제출 지역 이름 줄 + 퀘스트 줄 ([연계]/[종료])
+  if frame.rrows then
+    local okR, groups = false, nil
+    if KQG.ReadyList then okR, groups = pcall(KQG.ReadyList) end
+    if not okR or type(groups) ~= "table" then groups = {} end
+    local rr, idx, shown, total = frame.rrows, 0, 0, 0
+    for _, gr in ipairs(groups) do total = total + #gr.items end
+    for _, row in ipairs(rr) do row.used, row.qid, row.head = nil, nil, nil end
+    for _, gr in ipairs(groups) do
+      if idx + 1 < #rr then
+        idx = idx + 1
+        local row = rr[idx]
+        row.used, row.head = true, true
+        row.text:SetText("|cff6bb8d6" .. gr.name .. "|r  |cffa4abb6" .. #gr.items .. "개|r")
+        row.sub:SetText("")
+        for _, it in ipairs(gr.items) do
+          if idx < #rr then
+            idx = idx + 1
+            local qr = rr[idx]
+            qr.used, qr.qid = true, it.qid
+            qr.text:SetText((it.next and "|cff10d0a0[연계]|r " or "|cffa4abb6[종료]|r ") .. QName(it.qid))
+            local sub = it.npc and it.npc ~= "" and ("제출: " .. it.npc) or "제출 NPC 위치 모름"
+            if it.next then sub = sub .. "  /  다음: " .. QName(it.next) end
+            qr.sub:SetText(sub)
+            shown = shown + 1
+          end
+        end
+      end
+    end
+    frame.readyN = total
+    frame.rhead:SetText("완료 가능 퀘스트 " .. total .. "개" .. (shown < total and (" (" .. shown .. "개 표시)") or "") .. "  누르면 제출 안내")
+  end
   -- 다음 단계 목록
   for i = 1, ROWS do
     local row = rows[i]
@@ -2354,6 +2386,42 @@ LayoutFrame = function()
   f.line:SetPoint("TOPLEFT", f, "TOPLEFT", PADX, y)
   f.line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADX, y)
   y = y - 10
+  -- (0.35.3) 완료 가능 퀘스트: 현재 단계보다 위에 둡니다 (제출을 놓치지 않게)
+  if f.rrows then
+    local on = (f.readyN or 0) > 0
+    if on then
+      f.rhead:Show()
+      f.rhead:ClearAllPoints()
+      f.rhead:SetPoint("TOPLEFT", f, "TOPLEFT", PADX, y)
+      f.rtoggle:Show()
+      f.rtoggle:ClearAllPoints()
+      f.rtoggle:SetPoint("TOPLEFT", f, "TOPLEFT", PADX + CW - 20, y + 3)
+      f.rtoggle.label:SetText(db.collapseReady and "+" or "-")
+      y = y - 22
+    else
+      f.rhead:Hide()
+      f.rtoggle:Hide()
+    end
+    for _, row in ipairs(f.rrows) do
+      if on and row.used and not db.collapseReady then
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", f, "TOPLEFT", PADX, y)
+        if row.head or min then
+          row.sub:Hide()
+          row:SetHeight(18)
+          y = y - 20
+        else
+          row.sub:Show()
+          row:SetHeight(34)
+          y = y - 36
+        end
+        row:Show()
+      else
+        row:Hide()
+      end
+    end
+    if on then y = y - 6 end
+  end
   -- 현재 단계
   f.icon:ClearAllPoints()
   f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", PADX, y)
@@ -2834,6 +2902,23 @@ local function BuildFrame()
       if r.L then GoPrereq(r.L) end
     end)
   end
+  -- (0.35.3) 완료 가능 퀘스트 (창 맨 위, 제출 지역별). 누르면 제출 NPC로 경로안내
+  f.rhead = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  SetF(f.rhead, 13, true)
+  f.rhead:SetTextColor(0.063, 0.816, 0.627)
+  f.rtoggle = IconButton(f, "-", function()
+    db.collapseReady = not db.collapseReady
+    dirty = true
+    Refresh()
+  end)
+  SetF(f.rtoggle.label, 16, true)
+  f.rtoggle.label:SetTextColor(0.063, 0.816, 0.627)
+  f.rrows = {}
+  for i = 1, 8 do
+    f.rrows[i] = MakeRow(function(r)
+      if r.qid and KQG.RouteQuest then KQG.RouteQuest(r.qid) end
+    end)
+  end
 
   f.extra = Muted(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
   f.extra:SetWidth(CW)
@@ -3169,6 +3254,7 @@ KQG.Steps = function() return steps end
 KQG.StepsRaw = function() return steps end
 KQG.ActionText = ActionText
 KQG.ChainBadge = ChainBadge
+KQG.NextChain = NextChain   -- (0.35.3) 완료 가능 목록의 [연계] 표시
 KQG.SetAnchor = function(map)
   if map then anchorMap = map end
   db.planTarget = nil
