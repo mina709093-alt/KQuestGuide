@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.35.2",
+    "가까운 퀘스트 계획이 비어 예전 점수 목록으로 안내할 때, 창 표시가 'attempt to index local c (a number value)' 오류로 멈추던 문제를 고쳤습니다. 그때 모든 줄에 잘못 붙던 [연계] 표시도 없어졌습니다.",
+  },
   { ver = "0.35.1",
     "11월 25일 취합 데이터 반영: 퀘스트 67→75, 시작 위치 +1, 제출 위치 +1, 목표 위치 +11",
   },

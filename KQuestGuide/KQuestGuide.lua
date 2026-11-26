@@ -1429,7 +1429,8 @@ local function Compute()
         if f >= 0.5 then tier = hasPre and 3 or 2 end
         if tier < bestTier then bestTier = tier end
       end
-      g.fit, g.chain, g.tier = bestFit, bestChain, bestTier
+      -- (0.35.2) 연계 점수는 chainBonus에 둡니다. g.chain은 연계 안내 표({ target, map, idx, total }) 자리라 숫자를 넣으면 창 표시가 멈춥니다.
+      g.fit, g.chainBonus, g.tier = bestFit, bestChain, bestTier
       local near = (d and d <= 120 and bestFit >= 0.5) and true or false
       if g.kind == "turnin" then
         g.score = 400                                  -- 1순위: 이미 받은 퀘스트 완료
