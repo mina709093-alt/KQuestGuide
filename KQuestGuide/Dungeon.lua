@@ -30,6 +30,13 @@ local ZONE_ALIAS = {
   [978] = 1176,  -- 줄파락
   [1417] = 1477, -- 아탈학카르 신전
 }
+-- (0.37.0) 퀘스트 시작 위치로만 쓰는 던전 번호 (IsDungeonZone 판정용, 권장 알림 목록에는 넣지 않음)
+--   1585 = 검은바위 나락 안쪽 번호, 10022~10027 = 혈투의 전장 구역, 16xxx = Forever 던전 4곳
+local START_ALIAS = {
+  [1585] = 1584,
+  [10022] = 2557, [10023] = 2557, [10024] = 2557, [10025] = 2557, [10026] = 2557, [10027] = 2557,
+  [16544] = 16544, [16611] = 16611, [16732] = 16732, [16919] = 16919,
+}
 local PREP_RANGE = 4
 
 local function AreaName(area, fallback)
@@ -126,9 +133,11 @@ end
 -- 던전 퀘스트 창 (0.26.0)
 --   왼쪽: 던전 목록 (진영 문장, 이름, 입장 레벨, 내 퀘스트 완료/전체)
 --   오른쪽: 고른 던전의 퀘스트
+--     · (0.37.0) 맨 앞에 수락 위치 배지: [던전 외부] [던전 내부] [외부 연계] [내부 연계] [위치 확인 필요]
+--       정렬은 외부 수락 → 내부 수락 → 확인 필요, 그 안에서 레벨 순. 오른쪽 위 [전체][외부][내부] 필터
 --     · 던전 안에서 받는 퀘스트: [던전 내부] 퀘스트명
---     · 밖에서 받는 퀘스트: NPC명 - 퀘스트명 - 지역 (좌표)
---     · 선행이 있는 퀘스트: [+] [연계] 최종 퀘스트명 - 위치 → 펼치면 첫 단계부터 N_1, N_2 …
+--     · 밖에서 받는 퀘스트: [던전 외부] NPC명 - 퀘스트명 - 지역 (좌표)
+--     · 선행이 있는 퀘스트: [+] 배지 최종 퀘스트명 - 위치 → 펼치면 첫 단계부터 N_1, N_2 …
 --     · 완료한 퀘스트는 가로줄과 "완료" 표시
 --   좌표가 있는 줄을 누르면 그 NPC로 길 안내 (장비 추천과 같은 방식, 수락하면 자동 해제)
 -- 던전 목록·퀘스트 번호·레벨·진영은 DungeonData.lua(Dungeon Codex에서 변환)를 씁니다.
@@ -141,7 +150,7 @@ local FONT_B = "Interface\\AddOns\\KQuestGuide\\fonts\\MaruBuri-Bold.ttf"
 local DD = KQG.DungeonData or {}
 local SRC_KQG = "KQuestGuide 기본 데이터 (Questie/QuestieDB 기반)"
 local SRC_CODEX = "Dungeon Codex (영문 데이터)"
-local SRC_LINE = "던전·퀘스트 목록·레벨: Dungeon Codex · 퀘스트 이름·위치: KQuestGuide 기본 데이터 (Questie 기반)"
+local SRC_LINE = "던전·레벨: Dungeon Codex · 추가 퀘스트·공격대·수락 위치: QuestieDB Forever · 이름·좌표: KQuestGuide 기본 데이터"
 
 local C_TEXT = { 0.93, 0.94, 0.96 }
 local C_MUTED = { 0.55, 0.60, 0.63 }
@@ -150,6 +159,30 @@ local C_SEL = { 0.045, 0.32, 0.26 }
 local C_BG = { 0.035, 0.055, 0.065 }
 local C_DONE = { 0.18, 0.64, 0.42 }
 local C_GOLD = { 1.0, 0.82, 0.0 }
+-- (0.37.0) 수락 위치 배지: 그 던전 퀘스트를 실제로 받는 곳 기준 (DungeonData의 acc 칸)
+local ACC = {
+  E = { "[던전 외부]", { 0.30, 0.85, 0.45 } },
+  I = { "[던전 내부]", { 1.00, 0.60, 0.20 } },
+  EC = { "[외부 연계]", { 0.30, 0.72, 0.88 } },
+  IC = { "[내부 연계]", { 0.72, 0.52, 0.96 } },
+  U = { "[위치 확인 필요]", C_MUTED },
+}
+local ACC_DESC = {
+  E = "던전 밖에서 받습니다.", I = "던전 안에서 받습니다.",
+  EC = "선행 퀘스트를 마친 뒤 던전 밖에서 받습니다.", IC = "선행 퀘스트를 마친 뒤 던전 안에서 받습니다.",
+  U = "받는 곳을 자료로 확인하지 못했습니다.",
+}
+local VS_TEXT = {
+  ok = "확인됨 (Dungeon Codex와 QuestieDB Forever 모두 이 던전)",
+  hi = "높은 신뢰도 (QuestieDB Forever 자료)",
+  chk = "추가 확인 필요",
+}
+local FILTERS = { { "all", "전체" }, { "ext", "외부" }, { "int", "내부" } }
+-- 공격대·Forever 던전 이름 (게임이 이름을 알려 주지 않을 때만 씀)
+local EXTRA_NAMES = {
+  [1977] = "줄구룹", [2717] = "화산 심장부", [2159] = "오닉시아의 둥지", [2677] = "검은날개 둥지",
+  [3429] = "안퀴라즈 폐허", [3428] = "안퀴라즈 사원", [3456] = "낙스라마스",
+}
 local ICON_A = "Interface\\FriendsFrame\\PlusManz-Alliance"
 local ICON_H = "Interface\\FriendsFrame\\PlusManz-Horde"
 
@@ -172,6 +205,7 @@ for _, d in ipairs(DD) do
 end
 local areaName = {}
 for _, d in ipairs(DUNGEONS) do areaName[d[1]] = d[2] end
+for a, n in pairs(EXTRA_NAMES) do areaName[a] = areaName[a] or n end
 
 local function DName(d)
   local name
@@ -212,8 +246,11 @@ end
 
 -- 내가 받을 수 있는 던전 퀘스트인지 (진영 → KQuestGuide 데이터가 있으면 종족·직업·진영)
 local function Mine(cq)
+  if cq.vs == "no" then return false end -- (0.37.0) Forever에서 받을 수 없는 퀘스트
   if cq.side and cq.side ~= MyFaction() then return false end
-  if Q[cq.id] then return MineOK(cq.id) end
+  local r = Q[cq.id]
+  if r and r.bl and KQG.Hidden and KQG.Hidden(cq.id) then return false end
+  if r then return MineOK(cq.id) end
   return true
 end
 
@@ -294,7 +331,7 @@ local function StartText(id)
     local name = r[F.NAME] or ("#" .. id)
     local s = r[F.START]
     if not s then return name .. " - 받는 곳 정보 없음" end
-    if s[3] and IsDungeonZoneAny(s[3]) then return "[던전 내부] " .. name end
+    if s[3] and IsDungeonZoneAny(s[3]) then return name end -- (0.37.0) 안/밖은 배지가 알려 줌
     if s[1] == "i" then return "아이템「" .. (s[6] or "?") .. "」 - " .. name end
     local where = s[3] and ZoneName(s[3]) or ""
     return (s[6] or "?") .. " - " .. name .. " - " .. where .. " " .. Coord(s)
@@ -303,8 +340,35 @@ local function StartText(id)
   local name = QTitle(id)
   if not cq then return name end
   if cq.item then return "아이템「" .. ItemName(cq.item) .. "」 - " .. name end
-  if not cq.zm then return "[던전 내부] " .. name end
+  if not cq.zm then return name end
   return (cq.g or "?") .. " - " .. name .. " - " .. (KQG.MapName and KQG.MapName(cq.zm) or "")
+end
+
+-- (0.37.0) 수락 위치: "E" | "I" | "EC" | "IC" | "U"
+--   DungeonData의 acc 칸(QuestieDB Forever로 계산)을 먼저 쓰고, 없으면 KQG 시작 위치로 판정합니다.
+local function AccOf(id, cq)
+  cq = cq or codexQ[id]
+  if cq and cq.acc and ACC[cq.acc] then return cq.acc end
+  local r = Q[id]
+  local base = "U"
+  local s = r and r[F.START]
+  if s then
+    if s[3] and IsDungeonZoneAny(s[3]) then base = "I"
+    elseif s[1] ~= "i" then base = "E" end
+  end
+  if base == "U" then return "U" end
+  local chain = (r and (r[F.PREG] or r[F.PRES])) or (cq and cq.pre and #cq.pre > 0)
+  return chain and (base .. "C") or base
+end
+local function AccBadge(acc)
+  local a = ACC[acc] or ACC.U
+  return Hex(a[2]) .. a[1] .. "|r"
+end
+local ACC_ORDER = { E = 1, EC = 1, I = 2, IC = 2, U = 3 }
+local function PassFilter(acc, filter)
+  if filter == "ext" then return acc == "E" or acc == "EC" end
+  if filter == "int" then return acc == "I" or acc == "IC" end
+  return true
 end
 
 -- 연계 머리줄의 위치
@@ -313,24 +377,33 @@ local function WhereText(id)
   if r then
     local s = r[F.START]
     if not s then return "" end
-    if s[3] and IsDungeonZoneAny(s[3]) then return "던전 내부" end
+    if s[3] and IsDungeonZoneAny(s[3]) then return "" end -- (0.37.0) 배지가 알려 줌
     return (s[3] and ZoneName(s[3]) or "") .. " " .. Coord(s)
   end
   local cq = codexQ[id]
   if not cq then return "" end
   if cq.item then return "아이템으로 시작" end
-  if not cq.zm then return "던전 내부" end
+  if not cq.zm then return "" end
   return KQG.MapName and KQG.MapName(cq.zm) or ""
 end
 
 -- 고른 던전의 줄 목록 만들기
 local expanded = {}
-local function BuildRows(d)
-  local mine = {}
+-- filter: nil/"all" 전체, "ext" 외부 수락(E·EC), "int" 내부 수락(I·IC). 완료/전체 수는 거르기 전 기준
+local function BuildRows(d, filter)
+  local mine, here = {}, {}
   for _, cq in ipairs(d.q or {}) do
-    if Mine(cq) then mine[#mine + 1] = cq.id end
+    if Mine(cq) and not here[cq.id] then
+      mine[#mine + 1] = cq.id
+      here[cq.id] = cq
+    end
   end
+  local acc = {}
+  for _, id in ipairs(mine) do acc[id] = AccOf(id, here[id]) end
+  -- (0.37.0) 외부 수락 → 내부 수락 → 위치 확인 필요, 같은 묶음 안에서는 레벨 낮은 순
   table.sort(mine, function(a, b)
+    local ga, gb = ACC_ORDER[acc[a]] or 3, ACC_ORDER[acc[b]] or 3
+    if ga ~= gb then return ga < gb end
     local la = (Q[a] and Q[a][F.LVL]) or (codexQ[a] and codexQ[a].lv) or 0
     local lb = (Q[b] and Q[b][F.LVL]) or (codexQ[b] and codexQ[b].lv) or 0
     if la ~= lb then return la < lb end
@@ -344,36 +417,51 @@ local function BuildRows(d)
     for i = 1, #ch - 1 do inner[ch[i]] = true end
   end
   local rows, n, done, total = {}, 0, 0, 0
+  local count = { ext = 0, int = 0 }
   for _, id in ipairs(mine) do
     if not inner[id] then
-      n = n + 1
       total = total + 1
       local st = QState(id)
       if st == "done" then done = done + 1 end
-      local ch = chains[id]
-      if #ch == 1 then
-        rows[#rows + 1] = { num = n .. ".", id = id, text = StartText(id), state = st }
-      else
-        local cnt = 0
-        for _, c in ipairs(ch) do if KQG.IsDone(c) then cnt = cnt + 1 end end
-        rows[#rows + 1] = { num = n .. ".", id = id, chain = ch, header = true,
-          text = "[연계] " .. QTitle(id) .. " - " .. WhereText(id),
-          state = st, progress = st ~= "done" and string.format("%d/%d", cnt, #ch) or nil }
-        if expanded[d.key .. ":" .. id] then
-          for i, c in ipairs(ch) do
-            rows[#rows + 1] = { num = n .. "_" .. i, id = c, text = StartText(c), state = QState(c), child = true }
+      local a = acc[id]
+      if a == "E" or a == "EC" then count.ext = count.ext + 1 elseif a == "I" or a == "IC" then count.int = count.int + 1 end
+      if PassFilter(a, filter) then
+        n = n + 1
+        local ch = chains[id]
+        if #ch == 1 then
+          rows[#rows + 1] = { num = n .. ".", id = id, acc = a, cq = here[id], text = AccBadge(a) .. " " .. StartText(id), state = st }
+        else
+          local cnt = 0
+          for _, c in ipairs(ch) do if KQG.IsDone(c) then cnt = cnt + 1 end end
+          local where = WhereText(id)
+          rows[#rows + 1] = { num = n .. ".", id = id, chain = ch, header = true, acc = a, cq = here[id],
+            text = AccBadge(a) .. " " .. QTitle(id) .. (where ~= "" and (" - " .. where) or ""),
+            state = st, progress = st ~= "done" and string.format("%d/%d", cnt, #ch) or nil }
+          if expanded[d.key .. ":" .. id] then
+            for i, c in ipairs(ch) do
+              local ca = AccOf(c, here[c])
+              rows[#rows + 1] = { num = n .. "_" .. i, id = c, acc = ca, cq = here[c], text = AccBadge(ca) .. " " .. StartText(c), state = QState(c), child = true }
+            end
           end
         end
       end
     end
   end
-  return rows, done, total
+  return rows, done, total, count
 end
 
 local win
 local list, offset, offL, sel = {}, 0, 0, nil
 local LROWS, RROWS, ROW_H = 19, 16, 22
 local W, LEFT_W = 740, 256
+
+-- (0.37.0) 수락 위치 필터: "all" | "ext" | "int" (저장 칸 dungeonFilter, 없으면 전체)
+local function CurFilter()
+  local db_ = db()
+  local f = db_ and db_.dungeonFilter
+  if f == "ext" or f == "int" then return f end
+  return "all"
+end
 
 local function SelD()
   for _, d in ipairs(DD) do if d.key == sel then return d end end
@@ -413,7 +501,7 @@ local function RenderLeft()
       else
         row.iconA:SetPoint("LEFT", 14, 0) row.iconH:SetPoint("LEFT", 14, 0)
       end
-      row.name:SetText(DName(d) .. (d.up and (" " .. Hex(C_MUTED) .. "(개방 예정)|r") or ""))
+      row.name:SetText(DName(d) .. (d.up and (" " .. Hex(C_MUTED) .. "(개방 예정)|r") or "") .. (d.raid and (" " .. Hex(C_MUTED) .. "(공격대)|r") or ""))
       row.lv:SetText(d.lv and d.lv[1] > 0 and tostring(d.lv[1]) or "")
       local _, dn, tt = BuildRows(d)
       row.cnt:SetText(tt > 0 and (dn .. "/" .. tt) or "-")
@@ -451,9 +539,15 @@ RenderRight = function()
     else info[#info + 1] = string.format("%d레벨부터 권장", e.recommend) end
   end
   win.info:SetText(table.concat(info, "  ·  "))
-  local rows, dn, tt = BuildRows(d)
+  local filter = CurFilter()
+  local rows, dn, tt, cnt = BuildRows(d, filter)
   list = rows
-  win.sum:SetText(tt > 0 and string.format("내 진영 퀘스트 %d개 · 완료 %d개", tt, dn) or "내가 받을 수 있는 퀘스트가 없습니다.")
+  win.sum:SetText(tt > 0 and string.format("내 진영 퀘스트 %d개 · 완료 %d개 · 외부 수락 %d · 내부 수락 %d", tt, dn, cnt.ext, cnt.int)
+    or "내가 받을 수 있는 퀘스트가 없습니다.")
+  for _, b in ipairs(win.filters or {}) do
+    if b.key == filter then b.t:SetTextColor(C_ACCENT[1], C_ACCENT[2], C_ACCENT[3]) Solid(b.bg, C_SEL[1], C_SEL[2], C_SEL[3], 1)
+    else b.t:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3]) Solid(b.bg, 1, 1, 1, 0.06) end
+  end
   local maxOff = math.max(0, #list - RROWS)
   if offset > maxOff then offset = maxOff end
   if offset < 0 then offset = 0 end
@@ -508,7 +602,7 @@ local function BestDungeon()
   local level = UnitLevel("player") or 1
   local best, bestGap
   for _, d in ipairs(DD) do
-    if not d.up and d.lv and level >= d.lv[1] then
+    if not d.up and not d.raid and d.lv and level >= d.lv[1] then
       local gap = math.abs(level - d.lv[2])
       if not best or gap < bestGap then best, bestGap = d.key, gap end
     end
@@ -600,7 +694,7 @@ local function Build()
       GameTooltip:AddLine("진영: " .. (fac == "AH" and "공통" or fac == "A" and "얼라이언스" or fac == "H" and "호드" or "정보 없음")
         .. " (퀘스트를 받을 수 있는 진영 기준)", C_MUTED[1], C_MUTED[2], C_MUTED[3], true)
       if d.up then GameTooltip:AddLine("아직 열리지 않은 던전입니다.", C_MUTED[1], C_MUTED[2], C_MUTED[3]) end
-      GameTooltip:AddLine("던전·레벨 출처: Dungeon Codex", C_MUTED[1], C_MUTED[2], C_MUTED[3])
+      GameTooltip:AddLine(d.raid and "공격대·퀘스트 출처: QuestieDB Forever" or "던전·레벨 출처: Dungeon Codex", C_MUTED[1], C_MUTED[2], C_MUTED[3])
       GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function(self)
@@ -628,6 +722,34 @@ local function Build()
   win.sum = SetF(win:CreateFontString(nil, "OVERLAY"), 11)
   win.sum:SetPoint("TOPLEFT", rx, -74)
   win.sum:SetTextColor(C_MUTED[1], C_MUTED[2], C_MUTED[3])
+  -- (0.37.0) 수락 위치 필터 버튼 [전체][외부][내부]
+  win.filters = {}
+  for i = #FILTERS, 1, -1 do
+    local fdef = FILTERS[i]
+    local b = CreateFrame("Button", nil, win)
+    b:SetSize(40, 18)
+    b:SetPoint("TOPRIGHT", win, "TOPRIGHT", -14 - (#FILTERS - i) * 44, -71)
+    b.key = fdef[1]
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.t = SetF(b:CreateFontString(nil, "OVERLAY"), 11, true)
+    b.t:SetPoint("CENTER")
+    b.t:SetText(fdef[2])
+    b:SetScript("OnClick", function(self)
+      local db_ = db()
+      if db_ then db_.dungeonFilter = self.key end
+      offset = 0
+      RenderRight()
+    end)
+    b:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      GameTooltip:AddLine(self.key == "ext" and "던전 밖에서 받는 퀘스트만 ([던전 외부]·[외부 연계])"
+        or self.key == "int" and "던전 안에서 받는 퀘스트만 ([던전 내부]·[내부 연계])" or "모든 퀘스트", 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    win.filters[#win.filters + 1] = b
+  end
   win.right = {}
   local RW = W - LEFT_W - 22
   for i = 1, RROWS do
@@ -668,9 +790,17 @@ local function Build()
       row.hl:Show()
       local it = self.item
       if not it then return end
-      local r, cq = Q[it.id], codexQ[it.id]
+      local r, cq = Q[it.id], it.cq or codexQ[it.id]
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
       GameTooltip:AddLine(QTitle(it.id), 1, 1, 1)
+      local a = it.acc or "U"
+      local ac = (ACC[a] or ACC.U)[2]
+      GameTooltip:AddLine((ACC[a] or ACC.U)[1] .. " " .. (ACC_DESC[a] or ""), ac[1], ac[2], ac[3], true)
+      if cq and cq.pz and (a == "EC" or a == "IC") then
+        GameTooltip:AddLine("선행 퀘스트 시작 지역: " .. ZoneName(cq.pz), C_TEXT[1], C_TEXT[2], C_TEXT[3], true)
+      end
+      if cq and cq.vs and VS_TEXT[cq.vs] then GameTooltip:AddLine("검증: " .. VS_TEXT[cq.vs], C_MUTED[1], C_MUTED[2], C_MUTED[3], true) end
+      if cq and cq.wu then GameTooltip:AddLine("구역 미확인: 이 던전의 모든 구역에 보여 줍니다.", C_MUTED[1], C_MUTED[2], C_MUTED[3], true) end
       local lv = (r and r[F.LVL]) or (cq and cq.lv) or 0
       local mn = (r and r[F.MIN]) or (cq and cq.min) or 0
       GameTooltip:AddLine(string.format("퀘스트 레벨 %d · 요구 레벨 %d", lv, mn), C_TEXT[1], C_TEXT[2], C_TEXT[3])
@@ -690,6 +820,8 @@ local function Build()
         GameTooltip:AddLine("클릭: 받는 곳으로 길 안내", C_ACCENT[1], C_ACCENT[2], C_ACCENT[3])
       end
       GameTooltip:AddLine("퀘스트 정보 출처: " .. (r and SRC_KQG or SRC_CODEX), C_MUTED[1], C_MUTED[2], C_MUTED[3], true)
+      if cq and cq.src == "q" then GameTooltip:AddLine("던전 연결·수락 위치 출처: QuestieDB Forever", C_MUTED[1], C_MUTED[2], C_MUTED[3], true)
+      elseif cq and cq.acc then GameTooltip:AddLine("던전 연결: Dungeon Codex · 수락 위치: QuestieDB Forever", C_MUTED[1], C_MUTED[2], C_MUTED[3], true) end
       GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() row.hl:Hide() GameTooltip:Hide() end)
@@ -769,5 +901,6 @@ KQG.IsDungeonZone = function(area)
     for _, d in ipairs(DUNGEONS) do dungeonSet[d[1]] = true end
   end
   if area == nil then return false end
+  if START_ALIAS[area] then return true end
   return dungeonSet[ZONE_ALIAS[area] or area] == true
 end
