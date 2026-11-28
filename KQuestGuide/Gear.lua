@@ -470,7 +470,8 @@ local function Evaluate()
         if not chain then stat.nochain = stat.nochain + 1 end
         if chain then
           local aq, kind, loc = Action(chain)
-          local map = loc and K.UiMapOf(loc[3])
+          -- (0.38.1) (-1, -1)은 인스턴스 안이라 좌표 없음 → 안내할 위치 없음으로 셈
+          local map = loc and type(loc[4]) == "number" and loc[4] >= 0 and K.UiMapOf(loc[3])
           if not (aq and map) then stat.nomap = stat.nomap + 1 end
           if aq and map then
             stat.ok = stat.ok + 1

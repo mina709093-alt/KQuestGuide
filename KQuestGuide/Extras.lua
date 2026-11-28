@@ -44,6 +44,7 @@ end
 
 local function HasLoc(g)
   return g and g.map and g.loc and type(g.loc[4]) == "number" and type(g.loc[5]) == "number"
+    and g.loc[4] >= 0 and g.loc[5] >= 0   -- (0.38.1) (-1, -1)은 인스턴스 안이라 좌표 없음
 end
 
 local function SharesQuest(a, b)

@@ -338,7 +338,9 @@ local function BuildIndex()
   end
   for id, r in pairs(Q) do
     local s = r[F_START]
-    if s and s[3] then
+    -- (0.38.1) 시작 좌표가 없는(-1, 인스턴스 안) 퀘스트는 수락 안내로 갈 곳이 없으므로 지역 목록에 넣지 않습니다
+    --   (Guide 표는 이 함수보다 아래에서 선언되므로 Guide.XY를 쓰지 않고 직접 검사)
+    if s and s[3] and type(s[4]) == "number" and type(s[5]) == "number" and s[4] >= 0 and s[5] >= 0 then
       local m = UiMapOf(s[3])
       if m then
         byMap[m] = byMap[m] or {}
@@ -454,6 +456,21 @@ function Guide.Travel(noSPF)
 end
 Guide.ACCEPT_ABOVE = 8    -- 퀘스트 레벨이 내 레벨보다 이만큼 넘게 높으면 아직 수락 안내에 넣지 않음
 Guide.HARD_ABOVE = 5      -- 내 레벨보다 이만큼 이상 높으면 어려운 퀘스트(계획에서 뒤로 미루거나 보류)
+
+-- (0.38.1) 게임이 준 값이 비밀값인지. 비밀값은 비교(==)만 해도 오류가 납니다.
+function Guide.Secret(v)
+  if type(issecretvalue) ~= "function" then return false end
+  local ok, s = pcall(issecretvalue, v)
+  return ok and s and true or false
+end
+-- (0.38.1) 안내에 쓸 수 있는 지도 좌표인지. 자료의 (-1, -1)은 "인스턴스 안이라 좌표 없음"입니다(1,013곳).
+function Guide.XY(x, y)
+  return type(x) == "number" and type(y) == "number" and x >= 0 and y >= 0 and x <= 100 and y <= 100
+end
+-- 위치 표(loc = { 종류, 번호, 지역, x, y, ... })가 지도 위 좌표를 가졌는지
+function Guide.HasXY(loc)
+  return type(loc) == "table" and loc[3] ~= nil and Guide.XY(loc[4], loc[5])
+end
 
 -- 지금 받을 수 있는 퀘스트 (선행 충족 + 부모/레벨 회색 설정 반영)
 local function Avail(id, level)
@@ -585,7 +602,7 @@ local function ObjectiveSteps(qid, level)
   local ko = inLog[qid] and LocalObjNames(qid, rows) or {}
   for i, o in ipairs(rows) do
     local map = UiMapOf(o[3])
-    if map then
+    if map and Guide.XY(o[4], o[5]) then   -- (0.38.1) 좌표 없는(-1) 인스턴스 안 목표는 뺌
       local name = (o[1] == "e") and "탐험 지점" or (ko[i] or o[2])
       table.insert(out, { kind = "doing", map = map, loc = { "q", qid, o[3], o[4], o[5], name, nil }, otype = o[1] })
     end
@@ -747,19 +764,23 @@ local function SeqStep(cq)
   if inLog[cq] then
     if logComplete[cq] then
       local e = r[F_END]
-      if e and e[3] then return MkStep("turnin", "COMPLETING_PREREQUISITE_QUEST", "pt" .. cq, { cq }, e) end
+      if Guide.HasXY(e) then return MkStep("turnin", "COMPLETING_PREREQUISITE_QUEST", "pt" .. cq, { cq }, e) end
     else
-      local row = OBJ[cq] and OBJ[cq][1]
+      -- (0.38.1) 좌표가 있는 첫 목표 (예전에는 첫 줄만 봐서 인스턴스 안(-1) 목표로 안내할 수 있었음)
+      local row
+      for _, o in ipairs(OBJ[cq] or {}) do
+        if Guide.HasXY(o) then row = o break end
+      end
       if row then
         return MkStep("doing", "COMPLETING_PREREQUISITE_QUEST", "pd" .. cq, { cq }, { "q", cq, row[3], row[4], row[5], (row[1] == "e") and "탐험 지점" or row[2], nil })
       end
       local e = r[F_END]
-      if e and e[3] then return MkStep("doing", "COMPLETING_PREREQUISITE_QUEST", "pd" .. cq, { cq }, e) end
+      if Guide.HasXY(e) then return MkStep("doing", "COMPLETING_PREREQUISITE_QUEST", "pd" .. cq, { cq }, e) end
     end
     return nil
   end
   local s = r[F_START]
-  if s and s[3] then return MkStep("accept", "MOVING_TO_QUEST_GIVER", "pa" .. cq, { cq }, s) end
+  if Guide.HasXY(s) then return MkStep("accept", "MOVING_TO_QUEST_GIVER", "pa" .. cq, { cq }, s) end
   return nil
 end
 
@@ -857,7 +878,7 @@ function Guide.PrepickSteps(pp, mp, skip, sx, sy)
   local hubs, list = {}, {}
   for q, info in pairs(pp) do
     local st = Q[q] and Q[q][F_START]
-    if not skip[q] and st and st[3] and UiMapOf(st[3]) == mp then
+    if not skip[q] and Guide.HasXY(st) and UiMapOf(st[3]) == mp then
       Guide.prepick[q] = Guide.prepick[q] or info
       local key = "ppacc" .. st[1] .. st[2]
       local g = hubs[key]
@@ -932,7 +953,7 @@ BuildPlan = function(level, m)
     end
     if m ~= t.map or #seq > 0 then
       local tl = Q[t.qid][F_START]
-      if tl and tl[3] then
+      if Guide.HasXY(tl) then
         local rt = MkStep("travel", "RETURNING_TO_TARGET_REGION", "pret" .. t.qid, { t.qid }, tl)
         rt.chain = { target = t.qid, map = t.map, idx = -1, total = chain and (#chain - 1) or 0 }
         rt.title = "|cffe0701f[복귀]|r " .. MapName(t.map) .. "(으)로 돌아가 " .. QName(t.qid) .. " 수락"
@@ -961,7 +982,7 @@ BuildPlan = function(level, m)
         if e and e[3] and UiMapOf(e[3]) == m and MapDist(cx, cy, e[4], e[5]) <= 60 then nm = e[6] or nm end
         loc = { "w", qid, nil, cx, cy, nm, nil }
         key = "tw" .. qid
-      elseif e and e[3] and UiMapOf(e[3]) == m then
+      elseif Guide.HasXY(e) and UiMapOf(e[3]) == m then
         loc = e
         key = "t" .. e[1] .. e[2]
       end
@@ -1056,7 +1077,7 @@ BuildPlan = function(level, m)
       local r = Q[qid]
       local pts = {}
       for _, o in ipairs(OBJ[qid]) do
-        if UiMapOf(o[3]) == m then pts[#pts + 1] = { x = o[4], y = o[5], name = (o[1] == "e") and "탐험 지점" or o[2], area = o[3] } end
+        if UiMapOf(o[3]) == m and Guide.XY(o[4], o[5]) then pts[#pts + 1] = { x = o[4], y = o[5], name = (o[1] == "e") and "탐험 지점" or o[2], area = o[3] } end
       end
       if #pts > 0 then
         local ql = r[F_LVL] or 0
@@ -1123,7 +1144,7 @@ BuildPlan = function(level, m)
     local tg, tOrder = {}, {}
     for _, qid in ipairs(g.quests) do
       local e = Q[qid][F_END]
-      if e and e[3] and UiMapOf(e[3]) == m then
+      if Guide.HasXY(e) and UiMapOf(e[3]) == m then
         local key = "t" .. e[1] .. e[2] .. "@" .. ci
         local x = tg[key]
         if not x then
@@ -1351,7 +1372,7 @@ local function Compute()
     local r = Q[qid]
     if r then
       local e = r[F_END]
-      if logComplete[qid] and e and e[3] then
+      if logComplete[qid] and Guide.HasXY(e) then
         local em = UiMapOf(e[3])
         if em and (not m or em == m) then
           local key = "t" .. e[1] .. e[2]
@@ -1772,6 +1793,8 @@ local function UpdateArrow()
     if all then forced = nil end
   end
   local g = forced or steps[1]
+  -- (0.38.1) 좌표 없는 목적지(인스턴스 안 -1, 파티원이 보낸 예전 단계 등)는 화살표·SPF·핀을 걸지 않음
+  if g and g.loc and g.loc[4] ~= nil and not Guide.XY(g.loc[4], g.loc[5]) then g = nil end
   local spfOwned = SPFOwned()
   if g and g.map and g.loc then
     local key = tostring(g.map) .. ":" .. tostring(g.loc[4]) .. ":" .. tostring(g.loc[5])
@@ -3128,24 +3151,53 @@ ev:SetScript("OnEvent", function(_, e)
 end)
 
 -- NPC 대화창에 계획된 퀘스트가 없으면 "수락 불가"로 보고 건너뜁니다 (되돌리기: /kqg back 또는 reset)
+-- (0.38.1) 게임이 보여 준 퀘스트 제목 목록, 퀘스트 번호 표, 목록을 읽었는지(known)를 돌려줍니다.
+--   비밀값 제목·번호는 비교하지 않고 버립니다. 어느 API로도 읽지 못했으면 known = false(건너뛰지 않음).
 local function OfferedTitles()
-  local t = {}
+  local t, ids, known = {}, {}, false
   if C_GossipInfo and C_GossipInfo.GetAvailableQuests then
     local ok, list = pcall(C_GossipInfo.GetAvailableQuests)
     if ok and type(list) == "table" then
-      for _, q in ipairs(list) do if q.title then t[#t + 1] = q.title end end
+      known = true
+      for _, q in ipairs(list) do
+        if type(q) == "table" then
+          local tt, qid = q.title, q.questID
+          if type(tt) == "string" and not Guide.Secret(tt) then t[#t + 1] = tt end
+          if type(qid) == "number" and not Guide.Secret(qid) then ids[qid] = true end
+        end
+      end
     end
   end
   if GetNumAvailableQuests and GetAvailableTitle then
     local ok, n = pcall(GetNumAvailableQuests)
-    if ok and n then
+    if ok and type(n) == "number" and not Guide.Secret(n) then
+      known = true
       for i = 1, n do
         local ok2, tt = pcall(GetAvailableTitle, i)
-        if ok2 and tt then t[#t + 1] = tt end
+        if ok2 and type(tt) == "string" and not Guide.Secret(tt) then t[#t + 1] = tt end
       end
     end
   end
-  return t
+  return t, ids, known
+end
+
+-- (0.38.1) 게임 대화창이 이 퀘스트를 보여 주는지. 예전에는 "이름 (Lv5)"(QName)를 제목에서 찾아서
+-- 항상 못 찾았고, 실제로 주는 퀘스트도 건너뛰었습니다. 번호 → 자료 이름 → 게임 제목 순서로 맞춥니다.
+function Guide.Offered(id, titles, ids)
+  if ids[id] then return true end
+  local names = {}
+  local r = Q[id]
+  if r and type(r[F_NAME]) == "string" and r[F_NAME] ~= "" then names[#names + 1] = r[F_NAME] end
+  if C_QuestLog and C_QuestLog.GetTitleForQuestID then
+    local ok, gt = pcall(C_QuestLog.GetTitleForQuestID, id)
+    if ok and type(gt) == "string" and gt ~= "" and not Guide.Secret(gt) then names[#names + 1] = gt end
+  end
+  for _, nm in ipairs(names) do
+    for _, tt in ipairs(titles) do
+      if tt == nm or string.find(tt, nm, 1, true) then return true end
+    end
+  end
+  return false
 end
 
 local npcFrame = CreateFrame("Frame")
@@ -3153,28 +3205,29 @@ for _, e in ipairs({ "GOSSIP_SHOW", "QUEST_GREETING" }) do pcall(npcFrame.Regist
 npcFrame:SetScript("OnEvent", function()
   if not db then return end
   local okn, npcName = pcall(UnitName, "npc")
-  if not okn or not npcName then return end
-  local titles = OfferedTitles()
-  local marked = {}
+  -- (0.38.1) 비밀값 NPC 이름은 비교(==)만 해도 오류가 나므로 건너뜀 (BugGrabber 기록)
+  if not okn or type(npcName) ~= "string" or Guide.Secret(npcName) or npcName == "" then return end
+  local titles, ids, known = OfferedTitles()
+  if not known then return end
+  local level = UnitLevel("player") or 1
+  local marked, ids2 = {}, {}
   for i = 1, math.min(#steps, 8) do
     local g = steps[i]
     if g and g.kind == "accept" and g.loc and g.loc[6] == npcName then
       for _, id in ipairs(g.quests) do
-        local name = QName(id)
-        local found = false
-        for _, tt in ipairs(titles) do
-          if string.find(tt, name, 1, true) then found = true break end
-        end
-        if not found and not db.skipped[id] then
+        -- 회색 퀘스트는 게임 설정(낮은 레벨 퀘스트 표시)에 따라 대화창에 안 나올 수 있어 건너뛰지 않음
+        local gray = Q[id] and IsGrayLevel(Q[id][F_LVL], level)
+        if not gray and not inLog[id] and not db.skipped[id] and not Guide.Offered(id, titles, ids) then
           db.skipped[id] = true
-          marked[#marked + 1] = name
+          marked[#marked + 1] = QName(id)
+          ids2[#ids2 + 1] = id
         end
       end
     end
   end
   if #marked > 0 then
-    lastSkip = {}
-    Print(npcName .. "에게 [" .. table.concat(marked, ", ") .. "] 수락 항목이 없어 건너뜁니다. (되돌리기: /kqg reset)")
+    lastSkip = ids2   -- (0.38.1) /kqg back 으로 이번 것만 되돌림 (예전에는 비워서 되돌릴 수 없었음)
+    Print(npcName .. "에게 [" .. table.concat(marked, ", ") .. "] 수락 항목이 없어 건너뜁니다. (되돌리기: /kqg back)")
     pinned = nil
     dirty = true
   end

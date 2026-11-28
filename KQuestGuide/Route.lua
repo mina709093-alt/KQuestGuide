@@ -68,7 +68,8 @@ local function DataSpots(q)
   if type(rows) ~= "table" then return out end
   for _, o in ipairs(rows) do
     local map = K.UiMapOf and K.UiMapOf(o[3])
-    if map and type(o[4]) == "number" and type(o[5]) == "number" then
+    -- (0.38.1) (-1, -1)은 인스턴스 안이라 좌표 없음
+    if map and type(o[4]) == "number" and type(o[5]) == "number" and o[4] >= 0 and o[5] >= 0 then
       local name = (o[1] == "e") and "탐험 지점" or tostring(o[2] or "목표")
       out[#out + 1] = { map = map, loc = { "q", q, o[3], o[4], o[5], name } }
     end
@@ -244,7 +245,7 @@ local function TurnInSpot(q)
   local r = K.Q and K.Q[q]
   local e = r and K.F and r[K.F.END]
   local map = type(e) == "table" and K.UiMapOf and K.UiMapOf(e[3])
-  if map and type(e[4]) == "number" and type(e[5]) == "number" then return { map = map, loc = e } end
+  if map and type(e[4]) == "number" and type(e[5]) == "number" and e[4] >= 0 and e[5] >= 0 then return { map = map, loc = e } end
   local spots = QuestieTurnIn(q)
   if #spots > 0 then return Nearest(spots) end
   return GameAnySpot(q, "퀘스트 제출 위치(게임 정보)")
