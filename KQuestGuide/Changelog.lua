@@ -2,6 +2,9 @@
 if not SangsuPack or not SangsuPack.RegisterChangelog then return end
 
 SangsuPack:RegisterChangelog("KQuestGuide", {
+  { ver = "0.36.1",
+    "11월 28일 취합 데이터 반영: 퀘스트 75→84, 시작 위치 +1, 제출 위치 +1, 목표 위치 +18",
+  },
   { ver = "0.36.0",
     "안내 창 맨 위에 '완료 가능 퀘스트' 칸을 새로 만들었습니다. 목표를 다 채운 퀘스트를 제출할 지역별로 묶어 보여 주고(지금 있는 지역이 먼저), 누르면 제출 NPC로 길을 안내합니다.",
     "퀘스트마다 [연계](제출하면 다음 퀘스트가 이어짐, 다음 퀘스트 이름도 표시) 또는 [종료](제출하면 끝남) 표시가 붙습니다. 오른쪽 - 버튼으로 접을 수 있습니다.",
