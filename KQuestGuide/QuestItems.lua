@@ -108,6 +108,8 @@ local function QuestState(qid, log, level)
   end
   return "later" -- 모르는 퀘스트는 나중에 쓰는 것으로 봄
 end
+-- (0.38.0) StarterIcons.lua(시작 아이템 아이콘)도 같은 판정을 씁니다
+KQG.QuestState = QuestState
 
 -- 퀘스트 목록에 있는 퀘스트의 목표 글 (아이템 이름이 들어 있으면 쓰는 중으로 봄)
 local logTexts, logTextsAt

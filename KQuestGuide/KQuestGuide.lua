@@ -3386,6 +3386,8 @@ SlashCmdList["KQG"] = function(msg)
   elseif msg == "arrive" then
     db.arriveNotice = (db.arriveNotice == false)
     Print("수락 지점 도착 안내 " .. (db.arriveNotice == false and "꺼짐" or "켜짐"))
+  elseif msg:match("^%S+") == "아이콘" or msg:match("^%S+") == "icon" then
+    if KQG.StarterCommand then KQG.StarterCommand(msg:match("^%S+%s+(.*)$") or "") end
   elseif string.sub(msg, 1, 4) == "item" then
     if KQG.ItemCommand then KQG.ItemCommand(string.sub(msg, 6)) end
   elseif string.sub(msg, 1, 3) == "npc" then
